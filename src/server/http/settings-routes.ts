@@ -6,16 +6,16 @@ import {
   saveTokens,
   setDefaults,
   setSite,
-  getAccessToken,
   getValidToken,
   isConnected,
   RECONNECT_MSG,
 } from '../confluence/connection-store';
-import { ConfluenceError, listSpaces, searchPages, type ClientCtx } from '../confluence/confluence-client';
+import { listSpaces, searchPages, type ClientCtx } from '../confluence/confluence-client';
 import { DomainError } from '../errors';
 import { AtlassianHttpError, buildAuthorizeUrl, exchangeCode, listSites } from '../confluence/oauth';
 import { safeEqual, randomId } from '../security/tokens';
 import type { AppDeps } from './app';
+import { withConfluence as sharedWithConfluence } from './confluence-guard';
 
 const OWNER_COOKIE = 'owner';
 const STATE_COOKIE = 'oauth_state';
@@ -64,20 +64,9 @@ export function registerSettingsRoutes(app: FastifyInstance, deps: AppDeps): voi
     }
   };
 
-  /** Confluence call for the owner picker; not connected (or no site) is 409, a rejected token is 403 reconnect. */
-  const withConfluence = async <T>(reply: FastifyReply, fn: (c: ClientCtx) => Promise<T>): Promise<T | FastifyReply> => {
-    if (!(await isConnected(db))) return reply.code(409).send({ error: 'not_connected' });
-    try {
-      return await fn({ fetch: deps.fetch, ...(await getAccessToken(deps)) });
-    } catch (err) {
-      if (err instanceof DomainError) return reply.code(403).send({ error: 'forbidden', message: err.message });
-      if (err instanceof ConfluenceError && err.status >= 400 && err.status < 500) {
-        const message = err.status === 401 ? RECONNECT_MSG : `Confluence request failed (${err.status})`;
-        return reply.code(403).send({ error: 'forbidden', message });
-      }
-      throw err;
-    }
-  };
+  /** Owner picker call: no connection (or no site) is 409; otherwise the shared Confluence error mapping. */
+  const withConfluence = async <T>(reply: FastifyReply, fn: (c: ClientCtx) => Promise<T>): Promise<T | FastifyReply> =>
+    (await isConnected(db)) ? sharedWithConfluence(deps, reply, fn) : reply.code(409).send({ error: 'not_connected' });
 
   const owner = { preHandler: requireOwner };
   const atlassian = { preHandler: requireAtlassian };

@@ -89,7 +89,8 @@ test('not configured explains the env vars and links to the README', async () =>
   await renderAt();
   expect(screen.getByText('ATLASSIAN_CLIENT_ID')).toBeTruthy();
   expect(screen.getByText('ATLASSIAN_CLIENT_SECRET')).toBeTruthy();
-  expect((screen.getByRole('link', { name: /README/ }) as HTMLAnchorElement).getAttribute('href')).toContain('README.md#');
+  expect(screen.getByText(/“Confluence export” section of the README/)).toBeTruthy();
+  expect(screen.queryByRole('link', { name: /README/ })).toBeNull();
   expect(screen.queryByRole('link', { name: 'Connect with Atlassian' })).toBeNull();
 });
 
@@ -174,4 +175,15 @@ test('Log out posts and returns to the login form', async () => {
   await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Log out' })); });
   expect(calls('POST', '/api/settings/logout')).toHaveLength(1);
   expect(screen.getByLabelText('Owner secret')).toBeTruthy();
+});
+
+test('the ?error= notice is cleared after a successful login', async () => {
+  let loggedIn = false;
+  handlers.push(when('POST', '/api/settings/login', () => { loggedIn = true; return json({ ok: true }); }));
+  handlers.push((u, i) => (u === '/api/settings' && !i?.method ? (loggedIn ? json(settings()) : json({ error: 'unauthorized' }, 401)) : undefined));
+  await renderAt('/settings?error=atlassian_failed');
+  expect(screen.getByRole('alert').textContent).toMatch(/failed/i);
+  type(screen.getByLabelText('Owner secret'), 'right');
+  await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Log in' })); });
+  expect(screen.queryByRole('alert')).toBeNull();
 });

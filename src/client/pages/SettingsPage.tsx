@@ -8,7 +8,6 @@ type Info = { connected: boolean; site: Site | null; defaults: Defaults | null; 
 type Space = { id: string; key: string; name: string };
 type Page = { id: string; title: string };
 
-const README_SETUP = 'README.md#confluence-export';
 const OAUTH_ERRORS: Record<string, string> = {
   atlassian_denied: 'Atlassian access was not granted. Connect again and approve the request.',
   atlassian_failed: 'Connecting to Atlassian failed. Try again.',
@@ -90,7 +89,7 @@ function ConnectLink({ label }: { label: string }) {
   );
 }
 
-function Connected({ info, reload }: { info: Info; reload: () => Promise<void> }) {
+function Connected({ info, reload, onSuccess }: { info: Info; reload: () => Promise<void>; onSuccess: () => void }) {
   const { site, defaults } = info;
   const [sites, setSites] = useState<Site[]>([]);
   const [siteId, setSiteId] = useState(site?.id ?? '');
@@ -141,6 +140,7 @@ function Connected({ info, reload }: { info: Info; reload: () => Promise<void> }
     setSaved(false);
     try {
       await fn();
+      onSuccess();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Something went wrong.');
     } finally {
@@ -349,7 +349,7 @@ export function SettingsPage() {
           {loadError}
         </p>
       )}
-      {needsLogin && <LoginForm onLoggedIn={() => void load()} />}
+      {needsLogin && <LoginForm onLoggedIn={() => { setNotice(null); void load(); }} />}
       {info && !info.atlassianConfigured && (
         <section className="card stack" aria-label="Atlassian connection">
           <h2>Atlassian</h2>
@@ -358,7 +358,7 @@ export function SettingsPage() {
             server and restart it.
           </p>
           <p>
-            See the <a href={README_SETUP}>Confluence setup section of the README</a>.
+            See the “Confluence export” section of the README.
           </p>
         </section>
       )}
@@ -371,7 +371,7 @@ export function SettingsPage() {
           </div>
         </section>
       )}
-      {info?.atlassianConfigured && info.connected && <Connected info={info} reload={load} />}
+      {info?.atlassianConfigured && info.connected && <Connected info={info} reload={load} onSuccess={() => setNotice(null)} />}
       {info && (
         <div className="card">
           <button type="button" className="btn btn-secondary" onClick={() => void logout()}>

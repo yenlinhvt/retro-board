@@ -2,13 +2,14 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { createBoard, verifyAdmin, type Board } from '../boards/board-service';
-import { ConfluenceError, listSpaces, searchPages, type ClientCtx } from '../confluence/confluence-client';
-import { getAccessToken, getDefaults, isConnected, RECONNECT_MSG } from '../confluence/connection-store';
+import { listSpaces, searchPages } from '../confluence/confluence-client';
+import { getDefaults, isConnected } from '../confluence/connection-store';
 import { exportBoard, type ExportDeps } from '../confluence/export-service';
 import { boards } from '../db/schema';
 import { DomainError } from '../errors';
 import { matchesAny } from '../security/tokens';
 import type { AppDeps } from './app';
+import { withConfluence } from './confluence-guard';
 
 const exportTargetSchema = z.object({
   spaceId: z.string().min(1).max(200),
@@ -82,30 +83,13 @@ export function registerBoardRoutes(app: FastifyInstance, deps: AppDeps, exportD
     return board;
   };
 
-  /** Runs a Confluence call; an expired connection or a 4xx from Atlassian becomes a 403 with a message. */
-  const withConfluence = async <T>(reply: FastifyReply, fn: (c: ClientCtx) => Promise<T>): Promise<T | FastifyReply> => {
-    try {
-      return await fn({ fetch: deps.fetch, ...(await getAccessToken(deps)) });
-    } catch (err) {
-      if (err instanceof DomainError) {
-        if (err.code === 'forbidden') return reply.code(403).send({ error: 'forbidden', message: err.message });
-        return reply.code(409).send({ error: 'not_connected' });
-      }
-      if (err instanceof ConfluenceError && err.status >= 400 && err.status < 500) {
-        const message = err.status === 401 ? RECONNECT_MSG : `Confluence request failed (${err.status})`;
-        return reply.code(403).send({ error: 'forbidden', message });
-      }
-      throw err;
-    }
-  };
-
   const invalid = (reply: FastifyReply, error: z.ZodError) =>
     reply.code(400).send({ error: 'invalid_input', message: error.issues[0]?.message ?? 'invalid' });
 
   app.get('/api/boards/:id/confluence/spaces', async (req, reply) => {
     if (!(await confluenceAdmin(req, reply))) return reply;
     const { q } = req.query as { q?: unknown };
-    return withConfluence(reply, async (c) => ({ spaces: await listSpaces(c, typeof q === 'string' ? q : undefined) }));
+    return withConfluence(deps, reply, async (c) => ({ spaces: await listSpaces(c, typeof q === 'string' ? q : undefined) }));
   });
 
   app.get('/api/boards/:id/confluence/pages', async (req, reply) => {
@@ -113,7 +97,7 @@ export function registerBoardRoutes(app: FastifyInstance, deps: AppDeps, exportD
     const parsed = pagesQuerySchema.safeParse(req.query);
     if (!parsed.success) return invalid(reply, parsed.error);
     const { spaceId, q } = parsed.data;
-    return withConfluence(reply, async (c) => ({ pages: await searchPages(c, spaceId, q ?? '') }));
+    return withConfluence(deps, reply, async (c) => ({ pages: await searchPages(c, spaceId, q ?? '') }));
   });
 
   app.put('/api/boards/:id/export-target', async (req, reply) => {
