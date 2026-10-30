@@ -1,6 +1,6 @@
 # Retro Board
 
-A self-hosted, real-time sprint retrospective board. Participants join with a link and an invite code, write private notes, share them with the team, vote, run a facilitator timer, capture action items, and (optionally) export the finished retro to Confluence Cloud.
+A self-hosted, real-time sprint retrospective board. Anyone with an invite code can create a board; participants join with just the board link, write private notes, share them with the team, vote, run a facilitator timer, capture action items, and (optionally) export the finished retro to Confluence Cloud.
 
 Stack: TypeScript, Fastify 5, Socket.IO 4, Postgres (Drizzle), React 18 + Vite.
 
@@ -21,7 +21,7 @@ Open <http://localhost:3000>. Generate secrets with `openssl rand -base64 32`. D
 | `DATABASE_URL` | yes | Postgres connection string. Overridden by `docker-compose.yml` (built from `POSTGRES_PASSWORD`). |
 | `POSTGRES_PASSWORD` | compose only | Password for the bundled Postgres container. |
 | `PORT` | no (3000) | HTTP port the server listens on. |
-| `TRUST_PROXY` | no (`false`) | Set `true` behind Fly.io, Railway or Caddy so rate limits see real client IPs. |
+| `TRUST_PROXY` | no (`false`) | Set `true` behind Fly.io, Railway or Caddy so rate limits see real client IPs. On a VPS this requires binding the app port to `127.0.0.1` (see below). |
 | `PUBLIC_BASE_URL` | yes | Public URL of the app, no trailing slash. Used for links and the OAuth redirect. |
 | `OWNER_SECRET` | yes | At least 16 characters. Required to administer the instance (settings page). |
 | `INVITE_CODES` | yes | Comma-separated codes that allow creating boards. |
@@ -29,6 +29,8 @@ Open <http://localhost:3000>. Generate secrets with `openssl rand -base64 32`. D
 | `ENCRYPTION_KEY` | yes | Base64 of exactly 32 bytes. Encrypts Atlassian tokens at rest (AES-256-GCM). |
 | `ATLASSIAN_CLIENT_ID` | no | Atlassian OAuth app client ID. Set together with the secret, or leave both blank to disable Confluence export. |
 | `ATLASSIAN_CLIENT_SECRET` | no | Atlassian OAuth app client secret. |
+
+The owner session cookie (set when signing in to `/settings`) stays valid for up to 8 hours and is not tied to `OWNER_SECRET`. **Log out** clears it only in that browser; to invalidate every owner session (for example after a leaked cookie or a changed `OWNER_SECRET`), rotate `SESSION_SECRET` and restart the app.
 
 ## Confluence export
 
@@ -42,7 +44,7 @@ Export is optional. To enable it, register an Atlassian OAuth 2.0 (3LO) app:
    - `offline_access` (refresh tokens; requested automatically during authorization)
 3. Under **Authorization**, set the callback URL to `${PUBLIC_BASE_URL}/api/settings/atlassian/callback`, for example `https://retro.example.com/api/settings/atlassian/callback`. It must match `PUBLIC_BASE_URL` exactly.
 4. Copy the client ID and secret into `ATLASSIAN_CLIENT_ID` and `ATLASSIAN_CLIENT_SECRET`, then restart the app.
-5. Open `${PUBLIC_BASE_URL}/settings`, sign in with `OWNER_SECRET`, and click **Connect Atlassian**. Approve access for your site.
+5. Open `${PUBLIC_BASE_URL}/settings`, sign in with `OWNER_SECRET`, and click **Connect with Atlassian**. Approve access for your site.
 6. Choose the default Confluence space and (optionally) a default parent page. Board admins can override the target per board before exporting.
 
 ## Deployment
@@ -76,7 +78,7 @@ retro.example.com {
 }
 ```
 
-Consider changing the app port mapping to `127.0.0.1:3000:3000` so only Caddy can reach it.
+**Required with `TRUST_PROXY=true`:** change the app port mapping in `docker-compose.yml` from `"3000:3000"` to `"127.0.0.1:3000:3000"` so only Caddy can reach the app. Otherwise clients can connect to port 3000 directly and spoof `X-Forwarded-For`, bypassing the per-IP rate limits.
 
 ## Backups
 
