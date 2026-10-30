@@ -31,22 +31,46 @@ export async function seedConnection(db: Db, key: Buffer, nowMs: number): Promis
   await setSite(db, { id: 'cloud-1', url: 'https://x.atlassian.net', name: 'X' }, nowMs);
 }
 
-export type FakePage = { id: string; spaceId: string; parentId: string | null; title: string; version: number; body: string };
+export type FakePage = {
+  id: string;
+  spaceId: string;
+  parentId: string | null;
+  title: string;
+  version: number;
+  body: string;
+  status?: 'current' | 'trashed' | 'archived';
+};
 
-/** In-memory Confluence v2 API behind a fetch function. Set `failWith` to make every call answer that status. */
+/** Confluence v2 error body shape. */
+const v2Error = (status: number, title: string) => ({ errors: [{ status, code: 'ERROR', title, detail: null }] });
+
+/**
+ * In-memory Confluence v2 API behind a fetch function. Set `failWith` to make every call answer that status;
+ * `beforePut` runs just before a page update is checked (to simulate a concurrent edit).
+ */
 export function fakeConfluence() {
   const pages = new Map<string, FakePage>();
   const spaces = [{ id: '100', key: 'ENG', name: 'Engineering' }, { id: '200', key: 'OPS', name: 'Ops' }];
-  const state = { failWith: null as number | null, calls: [] as string[] };
+  const state = {
+    failWith: null as number | null,
+    calls: [] as string[],
+    beforePut: null as ((page: FakePage) => void) | null,
+  };
   let nextId = 1;
   const j = (status: number, body: unknown) => new Response(JSON.stringify(body), { status });
-  const view = (p: FakePage) => ({ id: p.id, title: p.title, version: { number: p.version }, _links: { webui: `/spaces/S/pages/${p.id}` } });
+  const view = (p: FakePage) => ({
+    id: p.id,
+    status: p.status ?? 'current',
+    title: p.title,
+    version: { number: p.version },
+    _links: { webui: `/spaces/S/pages/${p.id}` },
+  });
   const fetchFn = (async (input: string, init?: RequestInit) => {
     const method = init?.method ?? 'GET';
     const url = new URL(input);
     const path = url.pathname.replace(/^\/ex\/confluence\/[^/]+\/wiki\/api\/v2/, '');
     state.calls.push(`${method} ${path}`);
-    if (state.failWith) return j(state.failWith, { message: 'nope' });
+    if (state.failWith) return j(state.failWith, v2Error(state.failWith, 'Request failed'));
     const body = init?.body ? JSON.parse(init.body as string) : null;
     if (method === 'GET' && path === '/spaces') return j(200, { results: spaces });
     const m = path.match(/^\/spaces\/([^/]+)\/pages$/);
@@ -56,9 +80,10 @@ export function fakeConfluence() {
       return j(200, { results: results.map((p) => ({ id: p.id, title: p.title })) });
     }
     if (method === 'POST' && path === '/pages') {
-      if (body.parentId && !pages.has(body.parentId)) return j(404, { message: 'parent not found' });
-      if ([...pages.values()].some((p) => p.spaceId === body.spaceId && p.title === body.title)) {
-        return j(400, { errors: [{ title: 'A page with this title already exists' }] });
+      if (body.parentId && !pages.has(body.parentId)) return j(404, v2Error(404, 'Parent page not found'));
+      const live = [...pages.values()].filter((p) => (p.status ?? 'current') === 'current');
+      if (live.some((p) => p.spaceId === body.spaceId && p.title === body.title)) {
+        return j(400, v2Error(400, 'A page with this title already exists: A page already exists with the same TITLE in this space'));
       }
       const p: FakePage = { id: String(nextId++), spaceId: body.spaceId, parentId: body.parentId ?? null, title: body.title, version: 1, body: body.body.value };
       pages.set(p.id, p);
@@ -66,10 +91,11 @@ export function fakeConfluence() {
     }
     const pm = path.match(/^\/pages\/([^/]+)$/);
     const page = pm ? pages.get(decodeURIComponent(pm[1]!)) : undefined;
-    if (pm && !page) return j(404, { message: 'not found' });
+    if (pm && !page) return j(404, v2Error(404, 'Not found'));
     if (method === 'GET' && page) return j(200, view(page));
     if (method === 'PUT' && page) {
-      if (body.version.number !== page.version + 1) return j(409, { message: 'version conflict' });
+      state.beforePut?.(page);
+      if (body.version.number !== page.version + 1) return j(409, v2Error(409, 'Version must be incremented'));
       Object.assign(page, { title: body.title, version: body.version.number, body: body.body.value });
       return j(200, view(page));
     }

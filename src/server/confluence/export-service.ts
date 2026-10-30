@@ -1,4 +1,4 @@
-import { asc, eq } from 'drizzle-orm';
+import { and, asc, eq } from 'drizzle-orm';
 import type { Db } from '../db/client';
 import { actionItems, boards, notes, participants, votes, type Board } from '../db/schema';
 import { DomainError } from '../errors';
@@ -33,7 +33,10 @@ export async function collectExportData(db: Db, boardId: string, nowMs: number =
     .from(participants)
     .where(eq(participants.boardId, boardId));
   const nameOf = new Map(people.map((p) => [p.id, p.name]));
-  const publicNotes = (await db.select().from(notes).where(eq(notes.boardId, boardId))).filter((n) => n.isPublic);
+  const publicNotes = await db
+    .select()
+    .from(notes)
+    .where(and(eq(notes.boardId, boardId), eq(notes.isPublic, true)));
   const voteRows = await db
     .select({ noteId: votes.noteId, participantId: votes.participantId })
     .from(votes)
@@ -144,7 +147,13 @@ async function publish(deps: ExportDeps, board: Board, spaceId: string, mode: Ex
       if (page.version !== board.confluencePageVersion && mode !== 'overwrite') {
         return { exportStatus: 'conflict', exportError: MSG.conflict };
       }
-      return saved(await updatePage(ctx, { id: page.id, title, storage, version: page.version + 1 }));
+      try {
+        return saved(await updatePage(ctx, { id: page.id, title, storage, version: page.version + 1 }));
+      } catch (err) {
+        // The page changed between our read and our write.
+        if (err instanceof ConfluenceError && err.status === 409) return { exportStatus: 'conflict', exportError: MSG.conflict };
+        throw err;
+      }
     }
   }
 
@@ -169,8 +178,23 @@ function saved(page: { id: string; version: number; url: string }): Outcome {
   };
 }
 
+const DUPLICATE = /already exists/i;
+
+/** Confluence's "a page with this title already exists" answer, read from the v2 error body. */
 function isTitleConflict(err: unknown): boolean {
-  return err instanceof ConfluenceError && (err.status === 400 || err.status === 409) && /title/i.test(err.message);
+  if (!(err instanceof ConfluenceError) || (err.status !== 400 && err.status !== 409)) return false;
+  let body: unknown;
+  try {
+    body = JSON.parse(err.message);
+  } catch {
+    return DUPLICATE.test(err.message);
+  }
+  const b = (body ?? {}) as { message?: unknown; errors?: unknown };
+  const texts: unknown[] = [b.message];
+  if (Array.isArray(b.errors)) {
+    for (const e of b.errors as { title?: unknown; detail?: unknown }[]) texts.push(e?.title, e?.detail);
+  }
+  return texts.some((t) => typeof t === 'string' && DUPLICATE.test(t));
 }
 
 function errorMessage(deps: ExportDeps, err: unknown, boardId: string, parentId: string | null): string {

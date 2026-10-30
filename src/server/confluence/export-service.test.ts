@@ -164,6 +164,39 @@ test('gives up after suffix (10)', async () => {
   expect(await board()).toMatchObject({ exportStatus: 'failed', exportError: 'Export failed: a page with this title already exists' });
 });
 
+test('an unrelated 400 is not retried as a title conflict and is logged', async () => {
+  const log = { error: vi.fn() };
+  confluence.state.failWith = 400;
+  await exportBoard({ ...deps, log }, boardId, 'auto');
+  expect(await board()).toMatchObject({ exportStatus: 'failed', exportError: 'Export failed: 400' });
+  expect(confluence.state.calls.filter((c) => c === 'POST /pages')).toHaveLength(1);
+  expect(log.error).toHaveBeenCalledWith(expect.objectContaining({ status: 400 }), expect.any(String));
+});
+
+test('a version change between read and update is a conflict', async () => {
+  await exportBoard(deps, boardId, 'auto');
+  confluence.state.beforePut = (page) => {
+    page.version += 1;
+  };
+  await exportBoard(deps, boardId, 'overwrite');
+  expect(await board()).toMatchObject({
+    exportStatus: 'conflict',
+    exportError: 'The Confluence page was edited after the last export',
+    confluencePageVersion: 1,
+  });
+});
+
+test('a trashed page is treated as deleted and recreated', async () => {
+  await exportBoard(deps, boardId, 'auto');
+  const first = onlyPage();
+  first.status = 'trashed';
+  await exportBoard(deps, boardId, 'auto');
+  expect(confluence.pages.size).toBe(2);
+  const created = [...confluence.pages.values()][1]!;
+  expect(created.title).toBe(TITLE);
+  expect(await board()).toMatchObject({ exportStatus: 'success', confluencePageId: created.id, confluencePageVersion: 1 });
+});
+
 test('403 maps to no-permission message; data intact', async () => {
   await exportBoard(deps, boardId, 'auto');
   const before = await board();

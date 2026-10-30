@@ -47,15 +47,9 @@ export async function buildApp(
   await app.register(fastifyCookie, { secret: deps.config.sessionSecret });
   await app.register(fastifyRateLimit, { global: false });
 
-  // Export reports progress via broadcastBoard, which only exists once realtime is attached below.
-  let realtime: Realtime | null = null;
-  const exportDeps: ExportDeps = {
-    ...deps,
-    notify: async (boardId) => {
-      await realtime?.broadcastBoard(boardId);
-    },
-    log: app.log,
-  };
+  // Routes and export need broadcastBoard before realtime is attached below; this forwards to it once it is.
+  const realtime: Realtime = { broadcastBoard: async () => {} };
+  const exportDeps: ExportDeps = { ...deps, notify: (boardId) => realtime.broadcastBoard(boardId), log: app.log };
 
   registerBoardRoutes(app, deps, exportDeps);
   registerSettingsRoutes(app, deps);
@@ -79,12 +73,14 @@ export async function buildApp(
   app.addHook('onClose', async () => {
     await io.close();
   });
-  realtime = attachRealtime(io, {
+  const attached = attachRealtime(io, {
     ...deps,
     isConfluenceConnected: deps.isConfluenceConnected ?? (() => isConnected(deps.db)),
     onClosed: deps.onClosed ?? ((boardId) => void exportBoard(exportDeps, boardId, 'auto')),
     log: app.log,
   });
 
-  return { app, io, realtime: { broadcastBoard: realtime.broadcastBoard } };
+  realtime.broadcastBoard = attached.broadcastBoard;
+
+  return { app, io, realtime };
 }

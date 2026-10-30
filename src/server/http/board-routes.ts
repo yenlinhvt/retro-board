@@ -87,8 +87,9 @@ export function registerBoardRoutes(app: FastifyInstance, deps: AppDeps, exportD
     try {
       return await fn({ fetch: deps.fetch, ...(await getAccessToken(deps)) });
     } catch (err) {
-      if (err instanceof DomainError && err.code === 'forbidden') {
-        return reply.code(403).send({ error: 'forbidden', message: err.message });
+      if (err instanceof DomainError) {
+        if (err.code === 'forbidden') return reply.code(403).send({ error: 'forbidden', message: err.message });
+        return reply.code(409).send({ error: 'not_connected' });
       }
       if (err instanceof ConfluenceError && err.status >= 400 && err.status < 500) {
         const message = err.status === 401 ? RECONNECT_MSG : `Confluence request failed (${err.status})`;
@@ -121,13 +122,18 @@ export function registerBoardRoutes(app: FastifyInstance, deps: AppDeps, exportD
     const parsed = exportTargetSchema.safeParse(req.body);
     if (!parsed.success) return invalid(reply, parsed.error);
     const t = parsed.data;
+    const parentId = t.parentId || null;
+    // A new location means the next export creates a fresh page there instead of updating the old one.
+    const moved = t.spaceId !== board.confluenceSpaceId || parentId !== board.confluenceParentId;
     await db
       .update(boards)
       .set({
         confluenceSpaceId: t.spaceId,
         confluenceSpaceName: t.spaceName,
-        confluenceParentId: t.parentId || null,
+        confluenceParentId: parentId,
         confluenceParentTitle: t.parentTitle || null,
+        ...(moved ? { confluencePageId: null, confluencePageVersion: null, confluencePageUrl: null } : {}),
+        ...(moved && board.exportStatus === 'conflict' ? { exportStatus: 'idle', exportError: null } : {}),
       })
       .where(eq(boards.id, board.id));
     await exportDeps.notify(board.id);

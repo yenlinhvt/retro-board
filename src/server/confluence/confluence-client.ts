@@ -27,7 +27,7 @@ async function ensureOk(res: Response): Promise<void> {
   throw new ConfluenceError(res.status, text || `Confluence request failed (${res.status})`);
 }
 
-type PageResponse = { id: string; title?: string; version: { number: number }; _links: { webui: string } };
+type PageResponse = { id: string; status?: string; title?: string; version: { number: number }; _links: { webui: string } };
 
 function pageResult(c: ClientCtx, p: PageResponse): { id: string; version: number; url: string } {
   return { id: p.id, version: p.version.number, url: `${c.siteUrl.replace(/\/$/, '')}/wiki${p._links.webui}` };
@@ -50,11 +50,13 @@ export async function searchPages(c: ClientCtx, spaceId: string, title: string):
   return json.results.map((p) => ({ id: p.id, title: p.title }));
 }
 
+/** The current page, or null when it was deleted, trashed or archived. */
 export async function getPage(c: ClientCtx, id: string): Promise<{ id: string; version: number; title: string } | null> {
   const res = await request(c, 'GET', `/pages/${enc(id)}`);
   if (res.status === 404) return null;
   await ensureOk(res);
   const p = (await res.json()) as PageResponse;
+  if (p.status !== 'current') return null; // trashed/archived pages count as deleted
   return { id: p.id, version: p.version.number, title: p.title ?? '' };
 }
 

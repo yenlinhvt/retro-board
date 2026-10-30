@@ -6,6 +6,10 @@ import { loadConfig } from '../config';
 import { setDefaults } from '../confluence/connection-store';
 import type { Db } from '../db/client';
 import { createTestDb, fakeConfluence, seedBoard, seedConnection } from '../test/helpers';
+import { eq } from 'drizzle-orm';
+import { boards } from '../db/schema';
+import { DomainError } from '../errors';
+import type { Realtime } from '../realtime/socket';
 import { buildApp } from './app';
 
 const env = {
@@ -87,6 +91,7 @@ describe('board Confluence routes', () => {
   let boardId: string;
   let adminToken: string;
   let confluence: ReturnType<typeof fakeConfluence>;
+  let realtime: Realtime;
   const config = loadConfig(env);
 
   beforeEach(async () => {
@@ -94,7 +99,7 @@ describe('board Confluence routes', () => {
     db = await createTestDb();
     ({ boardId, adminToken } = await seedBoard(db, { name: 'S' }));
     confluence = fakeConfluence();
-    ({ app } = await buildApp({ config, db, now: () => Date.now(), fetch: confluence.fetch }));
+    ({ app, realtime } = await buildApp({ config, db, now: () => Date.now(), fetch: confluence.fetch }));
   });
 
   const call = (method: 'GET' | 'PUT' | 'POST', url: string, opts: { token?: string | null; payload?: object } = {}) =>
@@ -162,6 +167,7 @@ describe('board Confluence routes', () => {
 
   test('PUT export-target validates and stores', async () => {
     await seedConnection(db, config.encryptionKey, Date.now());
+    const notify = vi.spyOn(realtime, 'broadcastBoard');
     const url = `/api/boards/${boardId}/export-target`;
     expect((await call('PUT', url, { payload: { ...target, spaceId: '' } })).statusCode).toBe(400);
     expect((await call('PUT', url, { payload: { ...target, parentTitle: 'x'.repeat(201) } })).statusCode).toBe(400);
@@ -173,8 +179,45 @@ describe('board Confluence routes', () => {
       confluenceParentId: '7',
       confluenceParentTitle: 'Retros',
     });
+    expect(notify).toHaveBeenCalledWith(boardId);
     await call('PUT', url, { payload: { ...target, parentId: '', parentTitle: '' } });
     expect(await getBoard(db, boardId)).toMatchObject({ confluenceParentId: null, confluenceParentTitle: null });
+  });
+
+  test('changing the export location forgets the previous page', async () => {
+    await seedConnection(db, config.encryptionKey, Date.now());
+    const url = `/api/boards/${boardId}/export-target`;
+    const page = { confluencePageId: '9', confluencePageVersion: 2, confluencePageUrl: 'https://x/9' };
+    await db.update(boards).set({ ...page, confluenceSpaceId: '100', exportStatus: 'conflict', exportError: 'edited' }).where(eq(boards.id, boardId));
+
+    await call('PUT', url, { payload: { ...target, spaceName: 'Renamed' } }); // same space and parent
+    expect(await getBoard(db, boardId)).toMatchObject({ ...page, exportStatus: 'conflict' });
+
+    await call('PUT', url, { payload: { ...target, parentId: '7', parentTitle: 'Retros' } });
+    expect(await getBoard(db, boardId)).toMatchObject({
+      confluencePageId: null,
+      confluencePageVersion: null,
+      confluencePageUrl: null,
+      exportStatus: 'idle',
+      exportError: null,
+    });
+
+    await db.update(boards).set({ ...page, exportStatus: 'success' }).where(eq(boards.id, boardId));
+    await call('PUT', url, { payload: { ...target, spaceId: '200', spaceName: 'Ops' } });
+    expect(await getBoard(db, boardId)).toMatchObject({ confluencePageId: null, exportStatus: 'success' });
+  });
+
+  test('a non-forbidden DomainError from the connection is 409 not_connected', async () => {
+    await seedConnection(db, config.encryptionKey, Date.now());
+    const store = await import('../confluence/connection-store');
+    const spy = vi.spyOn(store, 'getAccessToken').mockRejectedValueOnce(new DomainError('not_found', 'gone'));
+    try {
+      const r = await call('GET', `/api/boards/${boardId}/confluence/spaces`);
+      expect(r.statusCode).toBe(409);
+      expect(r.json()).toEqual({ error: 'not_connected' });
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   test('POST export returns 202 and exports in the background (open board)', async () => {

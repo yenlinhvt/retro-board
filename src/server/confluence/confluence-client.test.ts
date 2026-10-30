@@ -51,12 +51,18 @@ describe('confluence client', () => {
 
   test('getPage returns null on 404; non-2xx throws ConfluenceError with status', async () => {
     expect(await getPage(ctx({ status: 404, text: 'nope' }).c, '1')).toBeNull();
-    const ok = await getPage(ctx({ body: { id: '1', title: 'T', version: { number: 3 } } }).c, '1');
+    const ok = await getPage(ctx({ body: { id: '1', status: 'current', title: 'T', version: { number: 3 } } }).c, '1');
     expect(ok).toEqual({ id: '1', title: 'T', version: 3 });
     const err = await getPage(ctx({ status: 500, text: 'boom' }).c, '1').catch((e) => e);
     expect(err).toBeInstanceOf(ConfluenceError);
     expect(err.status).toBe(500);
     expect(err.message).toContain('boom');
+  });
+
+  test('getPage treats a trashed or archived page as deleted', async () => {
+    for (const status of ['trashed', 'archived', 'draft']) {
+      expect(await getPage(ctx({ body: { id: '1', status, title: 'T', version: { number: 3 } } }).c, '1')).toBeNull();
+    }
   });
 
   test('error message truncates body to 500 chars', async () => {
