@@ -391,3 +391,15 @@ test('buildApp exposes broadcastBoard', async () => {
   await built.realtime.broadcastBoard(boardId);
   expect((await next).id).toBe(boardId);
 });
+
+test('concurrent admin:close events call onClosed exactly once', async () => {
+  const admin = await join({ name: 'Boss', adminToken });
+  const tab2 = await join({ name: 'Boss', participantId: 'boss-tab-2', adminToken });
+  const called = new Promise<void>((r) => onClosed.mockImplementation(() => r()));
+  const acks = await Promise.all([emit(admin, 'admin:close', {}), emit(tab2, 'admin:close', {}), emit(admin, 'admin:close', {})]);
+  expect(acks.filter((a) => a.ok)).toHaveLength(1);
+  expect(acks.filter((a) => !a.ok).map(errorOf)).toEqual(['board_closed', 'board_closed']);
+  // Failed closes ack without running the post-close hook, so after `called` no further call can arrive.
+  await called;
+  expect(onClosed).toHaveBeenCalledTimes(1);
+});

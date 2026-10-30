@@ -80,6 +80,20 @@ test('close sets closed_at; reopen clears; delete removes', async () => {
   await expect(getBoard(db, id)).rejects.toMatchObject({ code: 'not_found' });
 });
 
+test('closeBoard is atomic: closing a closed board throws board_closed and keeps closed_at; unknown board is not_found', async () => {
+  const first = new Date('2026-01-02T03:04:05Z');
+  await closeBoard(db, id, first);
+  await expect(closeBoard(db, id, new Date('2026-02-02T00:00:00Z'))).rejects.toMatchObject({ code: 'board_closed' });
+  expect((await getBoard(db, id)).closedAt).toEqual(first);
+  await expect(closeBoard(db, 'missing', first)).rejects.toMatchObject({ code: 'not_found' });
+});
+
+test('concurrent closeBoard calls: exactly one succeeds', async () => {
+  const results = await Promise.allSettled([closeBoard(db, id, new Date()), closeBoard(db, id, new Date())]);
+  expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+  expect(results.find((r) => r.status === 'rejected')).toMatchObject({ reason: { code: 'board_closed' } });
+});
+
 describe('participants', () => {
   test('upsertParticipant is idempotent per clientId and updates name', async () => {
     const a = await upsertParticipant(db, id, 'client-1', 'Ann');

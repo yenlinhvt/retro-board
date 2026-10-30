@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { COLUMN_COUNT, DEFAULT_COLUMNS, LIMITS } from '../../shared/constants';
 import type { Db } from '../db/client';
 import { boards, type Board } from '../db/schema';
@@ -76,8 +76,17 @@ export async function setVoteLimit(db: Db, boardId: string, limit: number): Prom
   await db.update(boards).set({ voteLimit: limit }).where(eq(boards.id, boardId));
 }
 
+/** Atomic open→closed transition: of concurrent callers exactly one succeeds, the rest get board_closed. */
 export async function closeBoard(db: Db, boardId: string, now: Date): Promise<void> {
-  await db.update(boards).set({ status: 'closed', closedAt: now }).where(eq(boards.id, boardId));
+  const closed = await db
+    .update(boards)
+    .set({ status: 'closed', closedAt: now })
+    .where(and(eq(boards.id, boardId), eq(boards.status, 'open')))
+    .returning({ id: boards.id });
+  if (closed.length === 0) {
+    await getBoard(db, boardId); // throws not_found for an unknown board
+    throw new DomainError('board_closed', 'Board is closed');
+  }
 }
 
 export async function reopenBoard(db: Db, boardId: string): Promise<void> {

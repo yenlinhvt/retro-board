@@ -201,10 +201,9 @@ export function attachRealtime(io: IO, deps: RealtimeDeps): Realtime {
     handle('admin:renameColumn', { admin: true }, (p) => renameColumn(db, boardId, p.columnIndex, p.name));
     handle('admin:setVoteLimit', { admin: true }, (p) => setVoteLimit(db, boardId, p.limit));
     handle('admin:timer', { admin: true }, (p) => applyTimer(db, boardId, p, deps.now()));
-    handle('admin:close', { admin: true, after: () => deps.onClosed(boardId) }, async () => {
-      assertOpen(await getBoard(db, boardId));
-      await closeBoard(db, boardId, new Date(deps.now()));
-    });
+    handle('admin:close', { admin: true, after: () => deps.onClosed(boardId) }, () =>
+      closeBoard(db, boardId, new Date(deps.now())),
+    );
     handle('admin:reopen', { admin: true }, () => reopenBoard(db, boardId));
     handle(
       'admin:delete',
