@@ -66,3 +66,14 @@ test('unknown api route is 404 json', async () => {
   expect(r.statusCode).toBe(404);
   expect(r.json().error).toBe('not_found');
 });
+
+test('request logs never contain the admin query string', async () => {
+  const { Writable } = await import('node:stream');
+  let out = '';
+  const logStream = new Writable({ write(chunk, _e, cb) { out += chunk.toString(); cb(); } });
+  const { app: logged } = await buildApp({ config: loadConfig(env), db: await createTestDb(), now: () => Date.now(), fetch, logStream });
+  await logged.inject({ method: 'GET', url: '/x?admin=SECRET' });
+  await logged.close();
+  expect(out).toContain('"url":"/x"');
+  expect(out).not.toContain('SECRET');
+});

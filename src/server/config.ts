@@ -3,6 +3,7 @@ import { z } from 'zod';
 export type Config = {
   databaseUrl: string;
   port: number;
+  trustProxy: boolean;
   publicBaseUrl: string;
   ownerSecret: string;
   inviteCodes: string[];
@@ -16,6 +17,7 @@ const blankToUndef = (v: unknown) => (typeof v === 'string' && v.trim() === '' ?
 const schema = z.object({
   DATABASE_URL: z.string().min(1),
   PORT: z.preprocess(blankToUndef, z.coerce.number().int().min(1).max(65535).default(3000)),
+  TRUST_PROXY: z.preprocess(blankToUndef, z.enum(['true', 'false']).default('false')),
   PUBLIC_BASE_URL: z.string().url(),
   OWNER_SECRET: z.string().min(16),
   INVITE_CODES: z
@@ -46,6 +48,7 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
   return {
     databaseUrl: e.DATABASE_URL,
     port: e.PORT,
+    trustProxy: e.TRUST_PROXY === 'true',
     publicBaseUrl: e.PUBLIC_BASE_URL,
     ownerSecret: e.OWNER_SECRET,
     inviteCodes: e.INVITE_CODES,

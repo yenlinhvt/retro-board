@@ -10,14 +10,24 @@ import type { Config } from '../config';
 import type { Db } from '../db/client';
 import { registerBoardRoutes } from './board-routes';
 
-export type AppDeps = { config: Config; db: Db; now: () => number; fetch: typeof fetch };
+export type AppDeps = { config: Config; db: Db; now: () => number; fetch: typeof fetch; logStream?: NodeJS.WritableStream };
 
 export async function buildApp(
   deps: AppDeps,
 ): Promise<{ app: FastifyInstance; io: Server<ClientToServer, ServerToClient> }> {
   const app = Fastify({
+    trustProxy: deps.config.trustProxy,
     logger: {
-      level: process.env.NODE_ENV === 'test' ? 'silent' : 'info',
+      level: process.env.NODE_ENV === 'test' && !deps.logStream ? 'silent' : 'info',
+      ...(deps.logStream ? { stream: deps.logStream } : {}),
+      // Log the path only: the query string can carry the admin token.
+      serializers: {
+        req: (req: { method: string; url: string; ip?: string }) => ({
+          method: req.method,
+          url: req.url.split('?')[0],
+          remoteAddress: req.ip,
+        }),
+      },
       redact: ['req.headers.cookie', 'req.query.admin', 'req.headers["x-admin-token"]'],
     },
   });
@@ -34,7 +44,8 @@ export async function buildApp(
   }
 
   app.setNotFoundHandler((req, reply) => {
-    const isReserved = req.url.startsWith('/api') || req.url.startsWith('/socket.io');
+    const urlPath = req.url.split('?')[0];
+    const isReserved = ['/api', '/socket.io'].some((p) => urlPath === p || urlPath.startsWith(`${p}/`));
     if (hasClient && req.method === 'GET' && !isReserved) {
       return reply.type('text/html').sendFile('index.html');
     }

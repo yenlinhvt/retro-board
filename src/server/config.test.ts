@@ -22,4 +22,11 @@ describe('loadConfig', () => {
     expect(c.atlassian).toEqual({ clientId: 'id', clientSecret: 'sec' });
     expect(c.port).toBe(8080);
   });
+  test('TRUST_PROXY defaults false, accepts true/false, blank is unset, rejects junk', () => {
+    expect(loadConfig(base).trustProxy).toBe(false);
+    expect(loadConfig({ ...base, TRUST_PROXY: '' }).trustProxy).toBe(false);
+    expect(loadConfig({ ...base, TRUST_PROXY: 'true' }).trustProxy).toBe(true);
+    expect(loadConfig({ ...base, TRUST_PROXY: 'false' }).trustProxy).toBe(false);
+    expect(() => loadConfig({ ...base, TRUST_PROXY: 'yes' })).toThrow(/TRUST_PROXY/);
+  });
 });
