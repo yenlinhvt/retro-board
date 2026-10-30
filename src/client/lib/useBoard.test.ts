@@ -7,6 +7,10 @@ class FakeSocket implements BoardSocket {
   handlers = new Map<string, (...a: any[]) => void>();
   emitted: { event: string; payload: unknown; ack: (a: unknown) => void }[] = [];
   disconnected = false;
+  connectCalls = 0;
+  connect() {
+    this.connectCalls++;
+  }
   on(event: string, h: (...a: any[]) => void) {
     this.handlers.set(event, h);
   }
@@ -96,4 +100,21 @@ test('emit times out after 10s with an internal error', async () => {
   });
   await vi.advanceTimersByTimeAsync(10_000);
   await expect(p).resolves.toEqual({ ok: false, error: 'internal', message: 'Request timed out' });
+});
+
+test('server-initiated disconnect triggers socket.connect()', () => {
+  const { result } = renderHook(() => useBoard('b1', auth, factory));
+  act(() => socket.fire('board:state', snap));
+  act(() => socket.fire('disconnect', 'transport close'));
+  expect(socket.connectCalls).toBe(0);
+  act(() => socket.fire('disconnect', 'io server disconnect'));
+  expect(socket.connectCalls).toBe(1);
+  expect(result.current.status).toBe('reconnecting');
+});
+
+test('no reconnect after board:deleted', () => {
+  renderHook(() => useBoard('b1', auth, factory));
+  act(() => socket.fire('board:deleted'));
+  act(() => socket.fire('disconnect', 'io server disconnect'));
+  expect(socket.connectCalls).toBe(0);
 });

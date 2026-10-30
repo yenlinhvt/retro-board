@@ -10,6 +10,7 @@ export interface BoardSocket {
   on(event: string, handler: (...args: any[]) => void): unknown;
   emit(event: string, ...args: any[]): unknown;
   disconnect(): unknown;
+  connect(): unknown;
 }
 
 export type SocketFactory = (boardId: string, auth: BoardAuth) => BoardSocket;
@@ -52,8 +53,11 @@ export function useBoard(
       ended = true;
       setStatus('deleted');
     });
-    socket.on('disconnect', () => {
-      if (!ended) setStatus('reconnecting');
+    socket.on('disconnect', (reason?: string) => {
+      if (ended) return;
+      setStatus('reconnecting');
+      // socket.io does not auto-reconnect after a server-initiated disconnect.
+      if (reason === 'io server disconnect') socket.connect();
     });
     socket.on('connect_error', (err: Error) => {
       if (ended) return;
