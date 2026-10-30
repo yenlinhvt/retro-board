@@ -195,7 +195,7 @@ export function BoardPage() {
       <ActionItems items={state.actionItems} notes={state.notes} participants={state.participants} readOnly={closed} emit={runEmit} />
       {state.isAdmin && (
         <>
-          <AdminPanel state={state} emit={runEmit} />
+          <AdminPanel state={state} emit={runEmit} adminToken={adminToken.current} />
           <ExportPanel boardId={state.id} adminToken={adminToken.current} exportView={state.export} />
         </>
       )}

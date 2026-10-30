@@ -82,3 +82,23 @@ test('Enter then blur emits once; rejected commit reverts the draft', async () =
   expect(e).toHaveBeenCalledTimes(1);
   expect(input.value).toBe('A');
 });
+
+test('copy admin link copies the token link without showing the token', async () => {
+  const writeText = vi.fn().mockResolvedValue(undefined);
+  Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+  const { container } = render(<AdminPanel state={state()} emit={emit()} adminToken="s3cr&t" />);
+  expect(container.innerHTML).not.toContain('s3cr');
+  const button = screen.getByRole('button', { name: 'Copy admin link' });
+  await act(async () => {
+    fireEvent.click(button);
+  });
+  expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/b/bid?admin=s3cr%26t`);
+  expect(button.textContent).toBe('Copied');
+  expect(screen.getByRole('button', { name: 'Copy link' })).toBeTruthy();
+  expect(container.innerHTML).not.toContain('s3cr');
+});
+
+test('no admin link control without a token', () => {
+  render(<AdminPanel state={state()} emit={emit()} />);
+  expect(screen.queryByRole('button', { name: /admin link/i })).toBeNull();
+});

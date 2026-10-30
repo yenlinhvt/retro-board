@@ -58,20 +58,22 @@ function CommitInput({
   );
 }
 
-export type AdminPanelProps = { state: BoardSnapshot; emit: Emit };
+/** `adminToken` is only ever copied to the clipboard (as the admin link), never rendered. */
+export type AdminPanelProps = { state: BoardSnapshot; emit: Emit; adminToken?: string };
 
-export function AdminPanel({ state, emit }: AdminPanelProps) {
+export function AdminPanel({ state, emit, adminToken }: AdminPanelProps) {
   const [confirmName, setConfirmName] = useState('');
-  const [copied, setCopied] = useState(false);
+  const [copied, setCopied] = useState<'participant' | 'admin' | null>(null);
   const closed = state.status === 'closed';
   const link = `${window.location.origin}/b/${state.id}`;
 
-  const copy = async () => {
+  const copy = async (which: 'participant' | 'admin') => {
+    const text = which === 'admin' ? `${link}?admin=${encodeURIComponent(adminToken ?? '')}` : link;
     try {
-      await navigator.clipboard.writeText(link);
-      setCopied(true);
+      await navigator.clipboard.writeText(text);
+      setCopied(which);
     } catch {
-      /* user can select the field manually */
+      /* user can select the participant field manually */
     }
   };
 
@@ -83,11 +85,22 @@ export function AdminPanel({ state, emit }: AdminPanelProps) {
         <span>Participant link</span>
         <div className="link-line">
           <input readOnly aria-label="Participant link" value={link} onFocus={(e) => e.currentTarget.select()} />
-          <button type="button" className="btn btn-secondary btn-small" onClick={copy}>
-            {copied ? 'Copied' : 'Copy link'}
+          <button type="button" className="btn btn-secondary btn-small" onClick={() => copy('participant')}>
+            {copied === 'participant' ? 'Copied' : 'Copy link'}
           </button>
         </div>
       </div>
+
+      {adminToken && (
+        <div className="field">
+          <span>Admin link — keep it private; it gives admin access from any browser</span>
+          <div>
+            <button type="button" className="btn btn-secondary btn-small" onClick={() => copy('admin')}>
+              {copied === 'admin' ? 'Copied' : 'Copy admin link'}
+            </button>
+          </div>
+        </div>
+      )}
 
       <fieldset className="stack">
         <legend>Column names</legend>
