@@ -75,6 +75,15 @@ test('closed board shows banner, badge and is read-only', () => {
   expect(screen.queryByLabelText(/Add a note/)).toBeNull();
 });
 
+test('rejected connection offers a reload', () => {
+  localStorage.setItem('retro.name', 'Ada');
+  hook.useBoard.mockReturnValue({ state: snap(), receivedAt: 0, status: 'rejected', emit });
+  mount();
+  expect(screen.getByRole('alert').textContent).toMatch(/could not join this board/i);
+  // jsdom cannot stub location.reload (it is unforgeable), so only the control is checked.
+  expect(screen.getByRole('button', { name: 'Reload' })).toBeTruthy();
+});
+
 test('reconnecting banner', () => {
   localStorage.setItem('retro.name', 'Ada');
   hook.useBoard.mockReturnValue({ state: snap(), receivedAt: 0, status: 'reconnecting', emit });

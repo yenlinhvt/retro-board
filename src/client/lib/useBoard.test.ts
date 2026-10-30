@@ -8,6 +8,7 @@ class FakeSocket implements BoardSocket {
   emitted: { event: string; payload: unknown; ack: (a: unknown) => void }[] = [];
   disconnected = false;
   connectCalls = 0;
+  active = true;
   connect() {
     this.connectCalls++;
   }
@@ -127,4 +128,67 @@ test('rename updates the auth used on reconnect without recreating the socket', 
   expect(factory).toHaveBeenCalledTimes(1);
   expect(first.disconnected).toBe(false);
   expect(getAuth().name).toBe('Ada L');
+});
+
+test('a rejected handshake is retried with capped backoff and recovers', async () => {
+  const { result } = renderHook(() => useBoard('b1', auth, factory));
+  const reject = () => {
+    socket.active = false; // socket.io-client gives up after a middleware error
+    act(() => socket.fire('connect_error', new Error('internal')));
+  };
+  reject();
+  expect(result.current.status).toBe('connecting');
+  await vi.advanceTimersByTimeAsync(999);
+  expect(socket.connectCalls).toBe(0);
+  await vi.advanceTimersByTimeAsync(1);
+  expect(socket.connectCalls).toBe(1);
+  reject();
+  await vi.advanceTimersByTimeAsync(2_000);
+  expect(socket.connectCalls).toBe(2);
+  reject();
+  await vi.advanceTimersByTimeAsync(5_000);
+  expect(socket.connectCalls).toBe(3);
+  reject();
+  await vi.advanceTimersByTimeAsync(10_000);
+  expect(socket.connectCalls).toBe(4);
+  reject();
+  await vi.advanceTimersByTimeAsync(9_999);
+  expect(socket.connectCalls).toBe(4);
+  await vi.advanceTimersByTimeAsync(1);
+  expect(socket.connectCalls).toBe(5); // capped at 10s
+
+  socket.active = true;
+  act(() => socket.fire('board:state', snap));
+  expect(result.current.status).toBe('connected');
+  act(() => socket.fire('disconnect', 'transport close'));
+  reject();
+  await vi.advanceTimersByTimeAsync(1_000);
+  expect(socket.connectCalls).toBe(6); // backoff restarts after a successful connect
+  expect(result.current.status).toBe('reconnecting');
+});
+
+test('connect_error while the client is still reconnecting on its own does not call connect()', async () => {
+  renderHook(() => useBoard('b1', auth, factory));
+  act(() => socket.fire('connect_error', new Error('xhr poll error')));
+  await vi.advanceTimersByTimeAsync(30_000);
+  expect(socket.connectCalls).toBe(0);
+});
+
+test('a pending handshake retry is cancelled on unmount', async () => {
+  const { unmount } = renderHook(() => useBoard('b1', auth, factory));
+  socket.active = false;
+  act(() => socket.fire('connect_error', new Error('internal')));
+  unmount();
+  await vi.advanceTimersByTimeAsync(30_000);
+  expect(socket.connectCalls).toBe(0);
+});
+
+test('connect_error invalid_input stops retrying and reports rejected', async () => {
+  const { result } = renderHook(() => useBoard('b1', auth, factory));
+  socket.active = false;
+  act(() => socket.fire('connect_error', new Error('invalid_input')));
+  expect(result.current.status).toBe('rejected');
+  expect(socket.disconnected).toBe(true);
+  await vi.advanceTimersByTimeAsync(30_000);
+  expect(socket.connectCalls).toBe(0);
 });

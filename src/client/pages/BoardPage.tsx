@@ -110,6 +110,19 @@ export function BoardPage() {
     );
   }
 
+  if (status === 'rejected') {
+    return (
+      <main className="page stack">
+        <p role="alert">Could not join this board. Reload the page to try again.</p>
+        <div>
+          <button type="button" className="btn btn-primary" onClick={() => window.location.reload()}>
+            Reload
+          </button>
+        </div>
+      </main>
+    );
+  }
+
   if (!state) {
     return (
       <main className="page">
