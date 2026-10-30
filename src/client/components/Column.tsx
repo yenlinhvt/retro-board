@@ -10,7 +10,9 @@ export function sortNotes(notes: NoteView[], sort: SortMode): NoteView[] {
   if (sort === 'votes') {
     return copy.sort((a, b) => b.votes - a.votes || a.createdAt.localeCompare(b.createdAt));
   }
-  return copy.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  // A public note counts as new from when it was shared.
+  const at = (n: NoteView) => n.sharedAt ?? n.createdAt;
+  return copy.sort((a, b) => at(b).localeCompare(at(a)));
 }
 
 export type ColumnProps = {

@@ -72,6 +72,17 @@ test('votes sort orders by votes desc then oldest first', () => {
   expect(texts).toEqual(['tieA', 'tieB', 'low']);
 });
 
+test('newest sort orders shared notes by when they were shared', () => {
+  const notes = [
+    note({ id: 'a', text: 'written-first-shared-last', isPublic: true, createdAt: '2026-01-01T00:00:00Z', sharedAt: '2026-01-05T00:00:00Z' }),
+    note({ id: 'b', text: 'written-last-shared-first', isPublic: true, createdAt: '2026-01-03T00:00:00Z', sharedAt: '2026-01-04T00:00:00Z' }),
+    note({ id: 'c', text: 'no-shared-time', isPublic: true, createdAt: '2026-01-02T00:00:00Z', sharedAt: null }),
+  ];
+  render(<Column {...props({ sort: 'newest', notes })} />);
+  const texts = screen.getAllByText(/^(written-first-shared-last|written-last-shared-first|no-shared-time)$/).map((e) => e.textContent);
+  expect(texts).toEqual(['written-first-shared-last', 'written-last-shared-first', 'no-shared-time']);
+});
+
 test('delete asks for confirmation; admin can delete others public notes', () => {
   const p = props({ isAdmin: true, notes: [note({ id: 'x', isPublic: true, isMine: false })] });
   const confirm = vi.spyOn(window, 'confirm').mockReturnValueOnce(false).mockReturnValueOnce(true);
