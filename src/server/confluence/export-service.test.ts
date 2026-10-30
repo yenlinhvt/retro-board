@@ -139,6 +139,46 @@ test('conflict when page edited externally; overwrite succeeds; new creates seco
   expect(await board()).toMatchObject({ exportStatus: 'success', confluencePageId: second.id, confluencePageVersion: 1 });
 });
 
+test('a page created as "(2)" keeps its suffix on auto re-export', async () => {
+  confluence.pages.set('x', { id: 'x', spaceId: '100', parentId: null, title: TITLE, version: 1, body: '' });
+  await exportBoard(deps, boardId, 'auto');
+  const created = [...confluence.pages.values()].find((p) => p.id !== 'x')!;
+  expect(created.title).toBe(`${TITLE} (2)`);
+  await exportBoard(deps, boardId, 'auto');
+  expect(await board()).toMatchObject({ exportStatus: 'success', confluencePageId: created.id, confluencePageVersion: 2 });
+  expect(created).toMatchObject({ title: `${TITLE} (2)`, version: 2 });
+});
+
+test('"new" then "auto" updates the second page and keeps its suffix', async () => {
+  await exportBoard(deps, boardId, 'auto');
+  await exportBoard(deps, boardId, 'new');
+  const second = [...confluence.pages.values()][1]!;
+  await exportBoard(deps, boardId, 'auto');
+  expect(await board()).toMatchObject({ exportStatus: 'success', confluencePageId: second.id, confluencePageVersion: 2 });
+  expect(second).toMatchObject({ title: `${TITLE} (2)`, version: 2 });
+  expect(onlyPage()).toMatchObject({ title: TITLE, version: 1 });
+});
+
+test('a renamed board keeps the page suffix with the new name', async () => {
+  await exportBoard(deps, boardId, 'auto');
+  await exportBoard(deps, boardId, 'new');
+  const second = [...confluence.pages.values()][1]!;
+  await db.update(boards).set({ name: 'T' }).where(eq(boards.id, boardId));
+  await exportBoard(deps, boardId, 'auto');
+  expect(second.title).toBe('Retro – T – 2026-10-30 (2)');
+  expect((await board()).exportStatus).toBe('success');
+});
+
+test('an update whose title is taken falls back to the next free suffix', async () => {
+  await exportBoard(deps, boardId, 'auto');
+  const mine = onlyPage();
+  mine.title = 'Renamed in Confluence';
+  confluence.pages.set('x', { id: 'x', spaceId: '100', parentId: null, title: TITLE, version: 1, body: '' });
+  await exportBoard(deps, boardId, 'overwrite');
+  expect(mine.title).toBe(`${TITLE} (2)`);
+  expect(await board()).toMatchObject({ exportStatus: 'success', confluencePageId: mine.id, confluencePageVersion: 2 });
+});
+
 test('deleted page is recreated', async () => {
   await exportBoard(deps, boardId, 'auto');
   const firstId = onlyPage().id;

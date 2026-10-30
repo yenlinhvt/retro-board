@@ -147,18 +147,24 @@ async function publish(deps: ExportDeps, board: Board, spaceId: string, mode: Ex
       if (page.version !== board.confluencePageVersion && mode !== 'overwrite') {
         return { exportStatus: 'conflict', exportError: MSG.conflict };
       }
-      try {
-        return saved(await updatePage(ctx, { id: page.id, title, storage, version: page.version + 1 }));
-      } catch (err) {
-        // The page changed between our read and our write.
-        if (err instanceof ConfluenceError && err.status === 409) return { exportStatus: 'conflict', exportError: MSG.conflict };
-        throw err;
+      // Keep the page's " (n)" suffix so a re-export does not collide with the page that took the base title.
+      const kept = TITLE_SUFFIX.exec(page.title)?.[1];
+      const preferred = kept ? withSuffix(title, Number(kept)) : title;
+      const candidates = [preferred, ...suffixedTitles(title).filter((t) => t !== preferred)];
+      for (const candidate of candidates) {
+        try {
+          return saved(await updatePage(ctx, { id: page.id, title: candidate, storage, version: page.version + 1 }));
+        } catch (err) {
+          // The page changed between our read and our write.
+          if (err instanceof ConfluenceError && err.status === 409) return { exportStatus: 'conflict', exportError: MSG.conflict };
+          if (!isTitleConflict(err)) throw err;
+        }
       }
+      return { exportStatus: 'failed', exportError: MSG.titleTaken };
     }
   }
 
-  for (let n = 1; n <= MAX_TITLE_SUFFIX; n++) {
-    const candidate = n === 1 ? title : `${title} (${n})`;
+  for (const candidate of suffixedTitles(title)) {
     try {
       return saved(await createPage(ctx, { spaceId, parentId: board.confluenceParentId, title: candidate, storage }));
     } catch (err) {
@@ -167,6 +173,11 @@ async function publish(deps: ExportDeps, board: Board, spaceId: string, mode: Ex
   }
   return { exportStatus: 'failed', exportError: MSG.titleTaken };
 }
+
+const TITLE_SUFFIX = / \((\d+)\)$/;
+const withSuffix = (title: string, n: number) => (n === 1 ? title : `${title} (${n})`);
+/** The base title, then "title (2)" … "title (10)". */
+const suffixedTitles = (title: string) => Array.from({ length: MAX_TITLE_SUFFIX }, (_, i) => withSuffix(title, i + 1));
 
 function saved(page: { id: string; version: number; url: string }): Outcome {
   return {

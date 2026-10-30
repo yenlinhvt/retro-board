@@ -96,6 +96,10 @@ export function fakeConfluence() {
     if (method === 'PUT' && page) {
       state.beforePut?.(page);
       if (body.version.number !== page.version + 1) return j(409, v2Error(409, 'Version must be incremented'));
+      const live = [...pages.values()].filter((p) => p !== page && (p.status ?? 'current') === 'current');
+      if (live.some((p) => p.spaceId === page.spaceId && p.title === body.title)) {
+        return j(400, v2Error(400, 'A page with this title already exists: A page already exists with the same TITLE in this space'));
+      }
       Object.assign(page, { title: body.title, version: body.version.number, body: body.body.value });
       return j(200, view(page));
     }
