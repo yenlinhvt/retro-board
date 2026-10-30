@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import type { TimerState } from './types';
-import { applyTimerAction, IDLE_TIMER, remainingMs } from './timer';
+import { applyTimerAction, clientRemainingMs, IDLE_TIMER, remainingMs } from './timer';
 
 const T0 = 1_000_000;
 
@@ -49,4 +49,10 @@ describe('timer', () => {
     const running = applyTimerAction(IDLE_TIMER, { type: 'start', durationMs: 60_000 }, T0);
     expect(applyTimerAction(running, { type: 'resume' }, T0 + 1)).toEqual(running);
   });
+});
+
+test('clientRemainingMs ignores a skewed local clock', () => {
+  const s = applyTimerAction(IDLE_TIMER, { type: 'start', durationMs: 60_000 }, 1_000_000);
+  // local clock is 5 minutes ahead; snapshot received 10s after server start
+  expect(clientRemainingMs(s, 1_010_000, 1_310_000, 1_315_000)).toBe(45_000);
 });

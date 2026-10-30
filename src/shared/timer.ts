@@ -44,3 +44,8 @@ export function applyTimerAction(state: TimerState, action: TimerAction, now: nu
     }
   }
 }
+
+/** Remaining time on a client, immune to local clock skew: advance the server time by local time elapsed since receipt. */
+export function clientRemainingMs(state: TimerState, serverNow: number, receivedAtLocal: number, localNow: number): number {
+  return remainingMs(state, serverNow + (localNow - receivedAtLocal));
+}
