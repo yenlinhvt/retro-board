@@ -130,14 +130,16 @@ test('callback rejects mismatched state', async () => {
   await boot();
   const { cookie } = await connect(await login());
   const r = await app.inject({ method: 'GET', url: '/api/settings/atlassian/callback?code=c&state=wrong', headers: { cookie } });
-  expect(r.statusCode).toBe(400);
+  expect(r.statusCode).toBe(302);
+  expect(r.headers.location).toBe('/settings?error=invalid_state');
   expect(await db.select().from(atlassianConnection)).toHaveLength(0);
 });
 
-test('callback with no state cookie is 400', async () => {
+test('callback with no state cookie redirects with invalid_state', async () => {
   await boot();
   const r = await app.inject({ method: 'GET', url: '/api/settings/atlassian/callback?code=c&state=x', headers: { cookie: await login() } });
-  expect(r.statusCode).toBe(400);
+  expect(r.statusCode).toBe(302);
+  expect(r.headers.location).toBe('/settings?error=invalid_state');
 });
 
 test('callback stores encrypted tokens and auto-selects single site', async () => {

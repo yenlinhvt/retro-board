@@ -108,6 +108,12 @@ test('?error= shows a readable message and is stripped from the URL', async () =
   expect(screen.getByTestId('loc').textContent).toBe('/settings');
 });
 
+test('?error=invalid_state shows a readable message', async () => {
+  handlers.push(when('GET', '/api/settings', () => json(settings())));
+  await renderAt('/settings?error=invalid_state');
+  expect(screen.getByRole('alert').textContent).toBe('The Atlassian sign-in expired or was started elsewhere. Connect again.');
+});
+
 test('connected with tokens but no site shows the site picker and saves the choice', async () => {
   let site: typeof SITE | null = null;
   handlers.push((u, i) => (u === '/api/settings' && !i?.method ? json(settings({ connected: true, site })) : undefined));

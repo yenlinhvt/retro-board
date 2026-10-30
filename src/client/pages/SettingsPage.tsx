@@ -11,6 +11,7 @@ type Page = { id: string; title: string };
 const OAUTH_ERRORS: Record<string, string> = {
   atlassian_denied: 'Atlassian access was not granted. Connect again and approve the request.',
   atlassian_failed: 'Connecting to Atlassian failed. Try again.',
+  invalid_state: 'The Atlassian sign-in expired or was started elsewhere. Connect again.',
 };
 
 async function failureMessage(res: Response): Promise<string> {

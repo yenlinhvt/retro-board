@@ -125,7 +125,7 @@ export function registerSettingsRoutes(app: FastifyInstance, deps: AppDeps): voi
       typeof q.state !== 'string' ||
       !safeEqual(q.state, cookie.value)
     ) {
-      return reply.code(400).send({ error: 'invalid_state' });
+      return reply.redirect('/settings?error=invalid_state', 302);
     }
     if (typeof q.error === 'string') {
       return reply.redirect('/settings?error=atlassian_denied', 302);
