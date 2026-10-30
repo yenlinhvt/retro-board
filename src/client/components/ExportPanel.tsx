@@ -71,11 +71,11 @@ export type ExportPanelProps = { boardId: string; adminToken: string | undefined
 
 export function ExportPanel({ boardId, adminToken, exportView }: ExportPanelProps) {
   const [spaceQuery, setSpaceQuery] = useState('');
-  const [spaceId, setSpaceId] = useState('');
-  const [spaceName, setSpaceName] = useState('');
+  const [spaceId, setSpaceId] = useState(exportView?.spaceId ?? '');
+  const [spaceName, setSpaceName] = useState(exportView?.spaceName ?? '');
   const [pageQuery, setPageQuery] = useState('');
-  const [parentId, setParentId] = useState('');
-  const [parentTitle, setParentTitle] = useState('');
+  const [parentId, setParentId] = useState(exportView?.parentId ?? '');
+  const [parentTitle, setParentTitle] = useState(exportView?.parentTitle ?? '');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -92,14 +92,15 @@ export function ExportPanel({ boardId, adminToken, exportView }: ExportPanelProp
   const spaces = useDebouncedSearch<Space>(
     spaceQuery,
     connected,
-    async (q) => (await call(`/confluence/spaces?q=${encodeURIComponent(q)}`)).json(),
+    async (q) => ((await (await call(`/confluence/spaces?q=${encodeURIComponent(q)}`)).json()) as { spaces?: Space[] }).spaces ?? [],
     setError,
     boardId,
   );
   const pages = useDebouncedSearch<Page>(
     pageQuery,
     connected && spaceId !== '',
-    async (q) => (await call(`/confluence/pages?spaceId=${encodeURIComponent(spaceId)}&q=${encodeURIComponent(q)}`)).json(),
+    async (q) =>
+      ((await (await call(`/confluence/pages?spaceId=${encodeURIComponent(spaceId)}&q=${encodeURIComponent(q)}`)).json()) as { pages?: Page[] }).pages ?? [],
     setError,
     spaceId,
   );

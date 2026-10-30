@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, expect, test, vi } from 'vitest';
 import { AdminPanel } from './AdminPanel';
 import type { BoardSnapshot } from '../../shared/types';
@@ -62,4 +62,23 @@ test('delete requires typing the exact board name; link has no token', () => {
   fireEvent.click(del);
   expect(e).toHaveBeenCalledWith('admin:delete', {});
   expect((screen.getByLabelText('Participant link') as HTMLInputElement).value).toBe(`${window.location.origin}/b/bid`);
+});
+
+test('closed board disables column and vote limit inputs', () => {
+  render(<AdminPanel state={state({ status: 'closed' })} emit={emit()} />);
+  expect((screen.getByLabelText('Column 1 name') as HTMLInputElement).disabled).toBe(true);
+  expect((screen.getByLabelText('Vote limit') as HTMLInputElement).disabled).toBe(true);
+});
+
+test('Enter then blur emits once; rejected commit reverts the draft', async () => {
+  const e = vi.fn().mockResolvedValue({ ok: false, error: 'invalid_input', message: 'no' });
+  render(<AdminPanel state={state()} emit={e} />);
+  const input = screen.getByLabelText('Column 1 name') as HTMLInputElement;
+  fireEvent.change(input, { target: { value: 'New' } });
+  await act(async () => {
+    fireEvent.keyDown(input, { key: 'Enter' });
+    fireEvent.blur(input);
+  });
+  expect(e).toHaveBeenCalledTimes(1);
+  expect(input.value).toBe('A');
 });

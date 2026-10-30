@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { LIMITS } from '../../shared/constants';
-import type { BoardSnapshot } from '../../shared/types';
+import type { Ack, BoardSnapshot } from '../../shared/types';
 import type { Emit } from '../lib/useBoard';
 
 /** Text/number input that commits on blur or Enter, only when the value changed and is valid. */
@@ -10,29 +10,39 @@ function CommitInput({
   type = 'text',
   validate,
   onCommit,
+  disabled,
   ...rest
 }: {
   label: string;
   value: string;
   type?: 'text' | 'number';
   validate: (v: string) => boolean;
-  onCommit: (v: string) => void;
+  onCommit: (v: string) => Promise<Ack>;
+  disabled?: boolean;
   maxLength?: number;
   min?: number;
   max?: number;
 }) {
   const [draft, setDraft] = useState(value);
-  const commit = () => {
+  const lastSent = useRef(value);
+  const commit = async () => {
     const v = draft.trim();
-    if (v === value || !validate(v)) {
-      if (v !== value) setDraft(value);
+    if (v === value || v === lastSent.current) return;
+    if (!validate(v)) {
+      setDraft(value);
       return;
     }
-    onCommit(v);
+    lastSent.current = v;
+    const ack = await onCommit(v);
+    if (!ack.ok) {
+      lastSent.current = value;
+      setDraft(value);
+    }
   };
   return (
     <input
       {...rest}
+      disabled={disabled}
       aria-label={label}
       type={type}
       value={draft}
@@ -88,7 +98,8 @@ export function AdminPanel({ state, emit }: AdminPanelProps) {
             value={name}
             maxLength={LIMITS.columnName}
             validate={(v) => v.length >= 1 && v.length <= LIMITS.columnName}
-            onCommit={(v) => void emit('admin:renameColumn', { columnIndex: i, name: v })}
+            disabled={closed}
+            onCommit={(v) => emit('admin:renameColumn', { columnIndex: i, name: v })}
           />
         ))}
       </fieldset>
@@ -106,7 +117,8 @@ export function AdminPanel({ state, emit }: AdminPanelProps) {
             const n = Number(v);
             return v !== '' && Number.isInteger(n) && n >= LIMITS.voteLimitMin && n <= LIMITS.voteLimitMax;
           }}
-          onCommit={(v) => void emit('admin:setVoteLimit', { limit: Number(v) })}
+          disabled={closed}
+          onCommit={(v) => emit('admin:setVoteLimit', { limit: Number(v) })}
         />
       </label>
 

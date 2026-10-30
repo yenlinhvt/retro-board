@@ -24,12 +24,19 @@ function writeSound(on: boolean): void {
   }
 }
 
-function beep(): void {
+function makeContext(): AudioContext | null {
   try {
     const Ctx: typeof AudioContext | undefined =
       window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-    if (!Ctx) return;
-    const ctx = new Ctx();
+    return Ctx ? new Ctx() : null;
+  } catch {
+    return null;
+  }
+}
+
+function beep(ctx: AudioContext): void {
+  try {
+    void ctx.resume?.();
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
     osc.frequency.value = 880;
@@ -38,7 +45,6 @@ function beep(): void {
     gain.connect(ctx.destination);
     osc.start();
     osc.stop(ctx.currentTime + 0.4);
-    osc.onended = () => void ctx.close();
   } catch {
     /* audio unavailable */
   }
@@ -66,6 +72,7 @@ export function TimerBar({ timer, serverNow, receivedAt, isAdmin, emit }: TimerB
   const soundRef = useRef(sound);
   soundRef.current = sound;
   const prevRemaining = useRef<number | null>(null);
+  const audioRef = useRef<AudioContext | null>(null);
   const beepedFor = useRef<number | null>(null);
 
   useEffect(() => {
@@ -82,7 +89,8 @@ export function TimerBar({ timer, serverNow, receivedAt, isAdmin, emit }: TimerB
     // Only beep when the countdown is seen reaching zero (not for an already-expired timer on load).
     if (timesUp && prev !== null && prev > 0 && beepedFor.current !== timer.endsAt && soundRef.current) {
       beepedFor.current = timer.endsAt;
-      beep();
+      audioRef.current ??= makeContext();
+      if (audioRef.current) beep(audioRef.current);
     }
   }, [remaining, timesUp, timer.endsAt]);
 
@@ -102,6 +110,11 @@ export function TimerBar({ timer, serverNow, receivedAt, isAdmin, emit }: TimerB
           checked={sound}
           onChange={(e) => {
             setSound(e.target.checked);
+            // Create/resume inside the click so the browser allows playback later.
+            if (e.target.checked) {
+              audioRef.current ??= makeContext();
+              void audioRef.current?.resume?.();
+            }
             writeSound(e.target.checked);
           }}
         />{' '}

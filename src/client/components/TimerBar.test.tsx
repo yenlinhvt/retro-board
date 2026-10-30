@@ -62,6 +62,7 @@ test('running shows Pause and Reset; paused shows Resume', () => {
   expect(p.emit).toHaveBeenLastCalledWith('admin:timer', { type: 'reset' });
 });
 
+const resume = vi.fn(() => Promise.resolve());
 function stubAudio() {
   const start = vi.fn();
   class Ctx {
@@ -69,7 +70,7 @@ function stubAudio() {
     destination = {};
     createOscillator() { return { frequency: { value: 0 }, connect: vi.fn(), start, stop: vi.fn(), onended: null }; }
     createGain() { return { gain: { value: 0 }, connect: vi.fn() }; }
-    close() { return Promise.resolve(); }
+    resume = resume;
   }
   vi.stubGlobal('AudioContext', Ctx);
   (window as unknown as { AudioContext: unknown }).AudioContext = Ctx;
@@ -103,4 +104,14 @@ test('sound toggle persists to localStorage and missing AudioContext does not th
   expect(localStorage.getItem('retro.sound')).toBe('on');
   act(() => { vi.advanceTimersByTime(3_000); });
   expect(screen.getByText("Time's up")).toBeTruthy();
+});
+
+test('enabling sound resumes the AudioContext inside the click; beep resumes too', () => {
+  stubAudio();
+  resume.mockClear();
+  render(<TimerBar {...props({ timer: running(Date.now() + 1_000), serverNow: Date.now() })} />);
+  fireEvent.click(screen.getByLabelText('Sound'));
+  expect(resume).toHaveBeenCalledTimes(1);
+  act(() => { vi.advanceTimersByTime(3_000); });
+  expect(resume).toHaveBeenCalledTimes(2);
 });

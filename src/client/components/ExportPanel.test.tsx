@@ -11,8 +11,8 @@ const json = (body: unknown, status = 200) => new Response(JSON.stringify(body),
 let fetchMock: ReturnType<typeof vi.fn<(url: string, init?: any) => Promise<Response>>>;
 beforeEach(() => {
   fetchMock = vi.fn(async (url: string, _init?: any) => {
-    if (url.includes('/confluence/spaces')) return json([{ id: 's1', key: 'T', name: 'Team' }, { id: 's2', key: 'D', name: 'Docs' }]);
-    if (url.includes('/confluence/pages')) return json([{ id: 'p1', title: 'Retros' }]);
+    if (url.includes('/confluence/spaces')) return json({ spaces: [{ id: 's1', key: 'T', name: 'Team' }, { id: 's2', key: 'D', name: 'Docs' }] });
+    if (url.includes('/confluence/pages')) return json({ pages: [{ id: 'p1', title: 'Retros' }] });
     return json({}, 202);
   });
   vi.stubGlobal('fetch', fetchMock);
@@ -63,8 +63,8 @@ test('failed shows error and Try again; saved target is displayed', () => {
   render(<ExportPanel boardId="b1" adminToken="tok" exportView={view({ status: 'failed', error: 'Boom', parentTitle: 'Retros' })} />);
   expect(screen.getByText('Boom')).toBeTruthy();
   expect(screen.getByRole('button', { name: 'Try again' })).toBeTruthy();
-  expect(screen.getByText('Team')).toBeTruthy();
-  expect(screen.getByText(/Retros/)).toBeTruthy();
+  expect(screen.getByText('Team', { selector: 'strong' })).toBeTruthy();
+  expect(screen.getByText('Team', { selector: 'strong' }).parentElement!.textContent).toBe('Saved target: Team / Retros');
 });
 
 test('space search is debounced 300ms and Save target PUTs the chosen space and parent', async () => {
@@ -92,9 +92,20 @@ test('space search is debounced 300ms and Save target PUTs the chosen space and 
 
 test('403 on export shows the server message', async () => {
   fetchMock.mockImplementation(async (url: string) =>
-    String(url).endsWith('/export') ? json({ error: 'forbidden', message: 'Nope' }, 403) : json([]),
+    String(url).endsWith('/export') ? json({ error: 'forbidden', message: 'Nope' }, 403) : json({ spaces: [] }),
   );
   render(<ExportPanel boardId="b1" adminToken="bad" exportView={view()} />);
   await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Export to Confluence' })); });
   await waitFor(() => expect(screen.getByRole('alert').textContent).toBe('Nope'));
+});
+
+test('saved space and parent are preselected so only the parent can be changed', async () => {
+  vi.useFakeTimers();
+  render(<ExportPanel boardId="b1" adminToken="tok" exportView={view({ spaceId: 's1', spaceName: 'Team', parentId: 'p1', parentTitle: 'Retros' })} />);
+  await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+  expect((screen.getByLabelText('Space') as HTMLSelectElement).value).toBe('s1');
+  expect((screen.getByLabelText('Parent page') as HTMLSelectElement).value).toBe('p1');
+  await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Save target' })); });
+  const put = fetchMock.mock.calls.find(([, i]) => i?.method === 'PUT')!;
+  expect(JSON.parse(put[1].body)).toEqual({ spaceId: 's1', spaceName: 'Team', parentId: 'p1', parentTitle: 'Retros' });
 });
