@@ -44,7 +44,7 @@ export async function buildApp(
   }
 
   app.setNotFoundHandler((req, reply) => {
-    const urlPath = req.url.split('?')[0];
+    const urlPath = req.url.split('?')[0] ?? '';
     const isReserved = ['/api', '/socket.io'].some((p) => urlPath === p || urlPath.startsWith(`${p}/`));
     if (hasClient && req.method === 'GET' && !isReserved) {
       return reply.type('text/html').sendFile('index.html');
