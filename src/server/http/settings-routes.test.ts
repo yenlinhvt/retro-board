@@ -23,6 +23,7 @@ let app: FastifyInstance;
 let db: Db;
 let sites: { id: string; url: string; name: string }[];
 let tokenStatus: number;
+let resourcesStatus: number;
 
 const fakeFetch = (async (url: string) => {
   const j = (status: number, b: unknown) => new Response(JSON.stringify(b), { status });
@@ -31,7 +32,7 @@ const fakeFetch = (async (url: string) => {
       ? j(200, { access_token: 'at-1', refresh_token: 'rt-1', expires_in: 3600 })
       : j(tokenStatus, { error: 'bad' });
   }
-  if (url.includes('accessible-resources')) return j(200, sites);
+  if (url.includes('accessible-resources')) return resourcesStatus === 200 ? j(200, sites) : j(resourcesStatus, {});
   return j(404, {});
 }) as unknown as typeof fetch;
 
@@ -48,6 +49,7 @@ async function boot(extra: Record<string, string> = {}, withAtlassian = true) {
 beforeEach(() => {
   sites = [{ id: 'cloud-1', url: 'https://x.atlassian.net', name: 'X' }];
   tokenStatus = 200;
+  resourcesStatus = 200;
 });
 afterEach(async () => {
   await app.close();
@@ -209,4 +211,43 @@ test('atlassian routes are 404 when not configured', async () => {
   expect(r.statusCode).toBe(404);
   const s = await app.inject({ method: 'GET', url: '/api/settings', headers: { cookie: owner } });
   expect(s.json().atlassianConfigured).toBe(false);
+});
+
+test('defaults without a connection is 409 and writes nothing', async () => {
+  await boot();
+  const owner = await login();
+  const r = await app.inject({ method: 'PUT', url: '/api/settings/defaults', headers: { cookie: owner }, payload: { spaceId: '1', spaceName: 'S' } });
+  expect(r.statusCode).toBe(409);
+  expect(r.json()).toEqual({ error: 'not_connected' });
+});
+
+test('empty parent strings are stored as null', async () => {
+  await boot();
+  const owner = await login();
+  const { cookie, state } = await connect(owner);
+  await app.inject({ method: 'GET', url: `/api/settings/atlassian/callback?code=c&state=${state}`, headers: { cookie } });
+  await app.inject({ method: 'PUT', url: '/api/settings/defaults', headers: { cookie: owner }, payload: { spaceId: '1', spaceName: 'S', parentId: '', parentTitle: '' } });
+  const info = (await app.inject({ method: 'GET', url: '/api/settings', headers: { cookie: owner } })).json();
+  expect(info.defaults).toEqual({ spaceId: '1', spaceName: 'S', parentId: null, parentTitle: null });
+});
+
+test('sites returns 403 reconnect message when the token is revoked or refresh is rejected', async () => {
+  await boot();
+  const owner = await login();
+  const { cookie, state } = await connect(owner);
+  await app.inject({ method: 'GET', url: `/api/settings/atlassian/callback?code=c&state=${state}`, headers: { cookie } });
+  const msg = 'Atlassian connection expired — owner needs to reconnect in Settings';
+  // refresh rejected: force expiry
+  await db.update(atlassianConnection).set({ expiresAt: new Date(0) });
+  tokenStatus = 400;
+  let r = await app.inject({ method: 'GET', url: '/api/settings/atlassian/sites', headers: { cookie: owner } });
+  expect(r.statusCode).toBe(403);
+  expect(r.json()).toEqual({ error: 'forbidden', message: msg });
+  // revoked access token: resources endpoint returns 401
+  tokenStatus = 200;
+  await db.update(atlassianConnection).set({ expiresAt: new Date(Date.now() + 3_600_000) });
+  resourcesStatus = 401;
+  r = await app.inject({ method: 'GET', url: '/api/settings/atlassian/sites', headers: { cookie: owner } });
+  expect(r.statusCode).toBe(403);
+  expect(r.json()).toEqual({ error: 'forbidden', message: msg });
 });

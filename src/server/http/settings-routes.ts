@@ -7,9 +7,10 @@ import {
   setDefaults,
   setSite,
   getValidToken,
+  RECONNECT_MSG,
 } from '../confluence/connection-store';
 import { DomainError } from '../errors';
-import { buildAuthorizeUrl, exchangeCode, listSites } from '../confluence/oauth';
+import { AtlassianHttpError, buildAuthorizeUrl, exchangeCode, listSites } from '../confluence/oauth';
 import { safeEqual, randomId } from '../security/tokens';
 import type { AppDeps } from './app';
 
@@ -45,9 +46,17 @@ export function registerSettingsRoutes(app: FastifyInstance, deps: AppDeps): voi
     if (!config.atlassian) return reply.code(404).send({ error: 'not_found' });
   };
 
-  const forbidden = (err: unknown): never => {
-    if (err instanceof DomainError) throw Object.assign(new Error(err.message), { statusCode: 403 });
-    throw err;
+  /** Runs an Atlassian call; an expired/revoked connection becomes a 403 reconnect response. */
+  const guarded = async <T>(reply: FastifyReply, fn: () => Promise<T>): Promise<T | FastifyReply> => {
+    try {
+      return await fn();
+    } catch (err) {
+      if (err instanceof DomainError) return reply.code(403).send({ error: 'forbidden', message: err.message });
+      if (err instanceof AtlassianHttpError && err.status >= 400 && err.status < 500) {
+        return reply.code(403).send({ error: 'forbidden', message: RECONNECT_MSG });
+      }
+      throw err;
+    }
   };
 
   const owner = { preHandler: requireOwner };
@@ -118,12 +127,12 @@ export function registerSettingsRoutes(app: FastifyInstance, deps: AppDeps): voi
     try {
       const tokens = await exchangeCode(deps, q.code);
       const previous = await getConnectionInfo(db);
-      await saveTokens(db, config.encryptionKey, tokens);
+      await saveTokens(db, config.encryptionKey, tokens, deps.now());
       const sites = await listSites(deps, tokens.accessToken);
       if (sites.length === 1) {
-        await setSite(db, sites[0]!);
+        await setSite(db, sites[0]!, deps.now());
       } else if (!sites.some((s) => s.id === previous.site?.id)) {
-        await setSite(db, null);
+        await setSite(db, null, deps.now());
       }
     } catch (err) {
       app.log.error({ err }, 'atlassian oauth callback failed');
@@ -135,8 +144,7 @@ export function registerSettingsRoutes(app: FastifyInstance, deps: AppDeps): voi
   app.get('/api/settings/atlassian/sites', atlassian, async (_req, reply) => {
     const info = await getConnectionInfo(db);
     if (!info.connected) return reply.code(409).send({ error: 'not_connected' });
-    const token = await getValidToken(deps).catch(forbidden);
-    return { sites: await listSites(deps, token) };
+    return guarded(reply, async () => ({ sites: await listSites(deps, await getValidToken(deps)) }));
   });
 
   app.put('/api/settings/atlassian/site', atlassian, async (req, reply) => {
@@ -146,25 +154,31 @@ export function registerSettingsRoutes(app: FastifyInstance, deps: AppDeps): voi
     }
     const info = await getConnectionInfo(db);
     if (!info.connected) return reply.code(409).send({ error: 'not_connected' });
-    const token = await getValidToken(deps).catch(forbidden);
-    const site = (await listSites(deps, token)).find((s) => s.id === body.id);
-    if (!site) return reply.code(400).send({ error: 'invalid_input', message: 'unknown site' });
-    await setSite(db, site);
-    return { ok: true };
+    return guarded(reply, async () => {
+      const site = (await listSites(deps, await getValidToken(deps))).find((s) => s.id === body.id);
+      if (!site) return reply.code(400).send({ error: 'invalid_input', message: 'unknown site' });
+      await setSite(db, site, deps.now());
+      return { ok: true };
+    });
   });
 
-  app.put('/api/settings/defaults', owner, async (req, reply) => {
+  app.put('/api/settings/defaults', atlassian, async (req, reply) => {
     const parsed = defaultsSchema.safeParse(req.body);
     if (!parsed.success) {
       return reply.code(400).send({ error: 'invalid_input', message: parsed.error.issues[0]?.message ?? 'invalid' });
     }
     const d = parsed.data;
-    await setDefaults(db, {
-      spaceId: d.spaceId,
-      spaceName: d.spaceName,
-      parentId: d.parentId ?? null,
-      parentTitle: d.parentTitle ?? null,
-    });
+    const saved = await setDefaults(
+      db,
+      {
+        spaceId: d.spaceId,
+        spaceName: d.spaceName,
+        parentId: d.parentId || null,
+        parentTitle: d.parentTitle || null,
+      },
+      deps.now(),
+    );
+    if (!saved) return reply.code(409).send({ error: 'not_connected' });
     return { ok: true };
   });
 

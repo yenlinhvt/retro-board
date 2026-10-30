@@ -54,8 +54,8 @@ test('exchangeCode computes expiresAt from deps.now', async () => {
 });
 
 test('getAccessToken returns stored token when far from expiry', async () => {
-  await saveTokens(db, config.encryptionKey, { accessToken: 'at-1', refreshToken: 'rt-1', expiresAt: new Date(nowMs + 600_000) });
-  await setSite(db, site);
+  await saveTokens(db, config.encryptionKey, { accessToken: 'at-1', refreshToken: 'rt-1', expiresAt: new Date(nowMs + 600_000) }, nowMs);
+  await setSite(db, site, nowMs);
   const f = (async () => {
     throw new Error('should not fetch');
   }) as typeof fetch;
@@ -67,8 +67,8 @@ test('getAccessToken returns stored token when far from expiry', async () => {
 });
 
 test('getAccessToken refreshes near expiry and persists rotated refresh token', async () => {
-  await saveTokens(db, config.encryptionKey, { accessToken: 'at-1', refreshToken: 'rt-1', expiresAt: new Date(nowMs + 30_000) });
-  await setSite(db, site);
+  await saveTokens(db, config.encryptionKey, { accessToken: 'at-1', refreshToken: 'rt-1', expiresAt: new Date(nowMs + 30_000) }, nowMs);
+  await setSite(db, site, nowMs);
   let sent: Record<string, string> = {};
   const f = (async (_u: string, init: RequestInit) => {
     sent = JSON.parse(init.body as string);
@@ -86,8 +86,8 @@ test('getAccessToken refreshes near expiry and persists rotated refresh token', 
 });
 
 test('getAccessToken failing refresh throws reconnect message', async () => {
-  await saveTokens(db, config.encryptionKey, { accessToken: 'at-1', refreshToken: 'rt-1', expiresAt: new Date(nowMs) });
-  await setSite(db, site);
+  await saveTokens(db, config.encryptionKey, { accessToken: 'at-1', refreshToken: 'rt-1', expiresAt: new Date(nowMs) }, nowMs);
+  await setSite(db, site, nowMs);
   const f = (async () => json(403, { error: 'invalid_grant' })) as typeof fetch;
   const err = await getAccessToken({ db, config, fetch: f, now }).catch((e) => e);
   expect(err).toBeInstanceOf(DomainError);
@@ -98,4 +98,22 @@ test('getAccessToken failing refresh throws reconnect message', async () => {
 test('getAccessToken throws reconnect message when not connected', async () => {
   const err = await getAccessToken({ db, config, fetch, now }).catch((e) => e);
   expect(err.message).toBe('Atlassian connection expired — owner needs to reconnect in Settings');
+});
+
+test('concurrent getAccessToken calls near expiry refresh only once', async () => {
+  await saveTokens(db, config.encryptionKey, { accessToken: 'at-1', refreshToken: 'rt-1', expiresAt: new Date(nowMs) }, nowMs);
+  await setSite(db, site, nowMs);
+  let calls = 0;
+  const f = (async () => {
+    calls++;
+    await new Promise((r) => setTimeout(r, 20));
+    return json(200, { access_token: 'at-2', refresh_token: 'rt-2', expires_in: 3600 });
+  }) as unknown as typeof fetch;
+  const [a, b] = await Promise.all([
+    getAccessToken({ db, config, fetch: f, now }),
+    getAccessToken({ db, config, fetch: f, now }),
+  ]);
+  expect(calls).toBe(1);
+  expect(a.token).toBe('at-2');
+  expect(b.token).toBe('at-2');
 });

@@ -38,7 +38,7 @@ export async function buildApp(
           remoteAddress: req.ip,
         }),
       },
-      redact: ['req.headers.cookie', 'req.query.admin', 'req.headers["x-admin-token"]'],
+      redact: ['req.headers.cookie', 'req.query.admin', 'req.query.code', 'req.query.state', 'req.headers["x-admin-token"]'],
     },
   });
 

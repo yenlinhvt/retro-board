@@ -15,19 +15,19 @@ export type Defaults = {
 export type ConnectionInfo = { connected: boolean; site: Site | null; defaults: Defaults | null };
 
 const ROW_ID = 1;
-const RECONNECT_MSG = 'Atlassian connection expired — owner needs to reconnect in Settings';
+export const RECONNECT_MSG = 'Atlassian connection expired — owner needs to reconnect in Settings';
 
 async function getRow(db: Db) {
   const [row] = await db.select().from(atlassianConnection).where(eq(atlassianConnection.id, ROW_ID));
   return row ?? null;
 }
 
-export async function saveTokens(db: Db, key: Buffer, tokens: Tokens): Promise<void> {
+export async function saveTokens(db: Db, key: Buffer, tokens: Tokens, nowMs: number): Promise<void> {
   const values = {
     accessTokenEnc: encrypt(tokens.accessToken, key),
     refreshTokenEnc: encrypt(tokens.refreshToken, key),
     expiresAt: tokens.expiresAt,
-    updatedAt: new Date(),
+    updatedAt: new Date(nowMs),
   };
   await db
     .insert(atlassianConnection)
@@ -36,29 +36,32 @@ export async function saveTokens(db: Db, key: Buffer, tokens: Tokens): Promise<v
 }
 
 /** Sets (or with null clears) the chosen site. No-op when there is no connection row. */
-export async function setSite(db: Db, site: Site | null): Promise<void> {
+export async function setSite(db: Db, site: Site | null, nowMs: number): Promise<void> {
   await db
     .update(atlassianConnection)
     .set({
       cloudId: site?.id ?? null,
       siteUrl: site?.url ?? null,
       siteName: site?.name ?? null,
-      updatedAt: new Date(),
+      updatedAt: new Date(nowMs),
     })
     .where(eq(atlassianConnection.id, ROW_ID));
 }
 
-export async function setDefaults(db: Db, d: Defaults): Promise<void> {
-  await db
+/** Returns false when there is no connection row to attach defaults to. */
+export async function setDefaults(db: Db, d: Defaults, nowMs: number): Promise<boolean> {
+  const rows = await db
     .update(atlassianConnection)
     .set({
       defaultSpaceId: d.spaceId,
       defaultSpaceName: d.spaceName,
       defaultParentId: d.parentId,
       defaultParentTitle: d.parentTitle,
-      updatedAt: new Date(),
+      updatedAt: new Date(nowMs),
     })
-    .where(eq(atlassianConnection.id, ROW_ID));
+    .where(eq(atlassianConnection.id, ROW_ID))
+    .returning({ id: atlassianConnection.id });
+  return rows.length > 0;
 }
 
 export async function disconnect(db: Db): Promise<void> {
@@ -93,14 +96,24 @@ export async function isConnected(db: Db): Promise<boolean> {
 type TokenDeps = Pick<OAuthDeps, 'config' | 'fetch' | 'now'> & { db: Db };
 
 /** Valid access token for the stored connection (site not required); refreshes near expiry. */
-export async function getValidToken(deps: TokenDeps): Promise<string> {
+const inflight = new WeakMap<Db, Promise<string>>();
+
+export function getValidToken(deps: TokenDeps): Promise<string> {
+  const existing = inflight.get(deps.db);
+  if (existing) return existing;
+  const p = loadValidToken(deps).finally(() => inflight.delete(deps.db));
+  inflight.set(deps.db, p);
+  return p;
+}
+
+async function loadValidToken(deps: TokenDeps): Promise<string> {
   const { db, config } = deps;
   const row = await getRow(db);
   if (!row) throw new DomainError('forbidden', RECONNECT_MSG);
   if (row.expiresAt.getTime() - deps.now() >= 60_000) return decrypt(row.accessTokenEnc, config.encryptionKey);
   try {
     const fresh = await refreshTokens(deps, decrypt(row.refreshTokenEnc, config.encryptionKey));
-    await saveTokens(db, config.encryptionKey, fresh);
+    await saveTokens(db, config.encryptionKey, fresh, deps.now());
     return fresh.accessToken;
   } catch (err) {
     if (err instanceof AtlassianHttpError && err.status >= 400 && err.status < 500) {
