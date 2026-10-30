@@ -8,6 +8,8 @@ import { Server } from 'socket.io';
 import type { ClientToServer, ServerToClient } from '../../shared/types';
 import type { Config } from '../config';
 import type { Db } from '../db/client';
+import { isConnected } from '../confluence/connection-store';
+import { exportBoard, type ExportDeps } from '../confluence/export-service';
 import { attachRealtime, type Realtime } from '../realtime/socket';
 import { registerBoardRoutes } from './board-routes';
 import { registerSettingsRoutes } from './settings-routes';
@@ -45,7 +47,17 @@ export async function buildApp(
   await app.register(fastifyCookie, { secret: deps.config.sessionSecret });
   await app.register(fastifyRateLimit, { global: false });
 
-  registerBoardRoutes(app, deps);
+  // Export reports progress via broadcastBoard, which only exists once realtime is attached below.
+  let realtime: Realtime | null = null;
+  const exportDeps: ExportDeps = {
+    ...deps,
+    notify: async (boardId) => {
+      await realtime?.broadcastBoard(boardId);
+    },
+    log: app.log,
+  };
+
+  registerBoardRoutes(app, deps, exportDeps);
   registerSettingsRoutes(app, deps);
 
   const clientDir = path.resolve(process.cwd(), 'dist/client');
@@ -67,12 +79,12 @@ export async function buildApp(
   app.addHook('onClose', async () => {
     await io.close();
   });
-  const { broadcastBoard } = attachRealtime(io, {
+  realtime = attachRealtime(io, {
     ...deps,
-    isConfluenceConnected: deps.isConfluenceConnected ?? (async () => false),
-    onClosed: deps.onClosed ?? (() => {}),
+    isConfluenceConnected: deps.isConfluenceConnected ?? (() => isConnected(deps.db)),
+    onClosed: deps.onClosed ?? ((boardId) => void exportBoard(exportDeps, boardId, 'auto')),
     log: app.log,
   });
 
-  return { app, io, realtime: { broadcastBoard } };
+  return { app, io, realtime: { broadcastBoard: realtime.broadcastBoard } };
 }

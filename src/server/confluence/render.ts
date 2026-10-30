@@ -6,8 +6,13 @@ export type ExportData = {
   actionItems: { text: string; owner: string; noteText: string | null }[];
 };
 
+// Control characters other than tab/LF/CR, plus U+FFFE/U+FFFF, are not allowed in XML 1.0 at all.
+const XML_INVALID = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\uFFFE\uFFFF]/g;
+
+/** Escapes the five XML special characters and drops characters XML 1.0 cannot represent. */
 export function escapeXml(s: string): string {
   return s
+    .replace(XML_INVALID, '')
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')

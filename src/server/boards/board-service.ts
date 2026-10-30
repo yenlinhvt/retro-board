@@ -7,7 +7,7 @@ import { hashToken, randomId, safeEqual } from '../security/tokens';
 
 export type { Board };
 
-export type ConfluenceDefaults = { spaceId: string; spaceName: string; parentId: string; parentTitle: string };
+export type ConfluenceDefaults = { spaceId: string; spaceName: string; parentId: string | null; parentTitle: string | null };
 
 function boundedText(value: string, max: number, label: string): string {
   const trimmed = value.trim();

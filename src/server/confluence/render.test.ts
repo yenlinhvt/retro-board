@@ -16,6 +16,12 @@ describe('render', () => {
     expect(escapeXml(`& < > " '`)).toBe('&amp; &lt; &gt; &quot; &#39;');
   });
 
+  test('escapeXml strips characters that are invalid in XML 1.0', () => {
+    const bad = '\u0000\u0001\u0008\u000B\u000C\u000E\u001F\uFFFE\uFFFF';
+    expect(escapeXml(`a${bad}b\tc\nd\re é 🎉`)).toBe('ab\tc\nd\re é 🎉');
+    expect(renderStorage({ ...data, boardName: 'x', columns: [{ name: `W\u0007ell`, notes: [] }] })).toContain('<h2>Well</h2>');
+  });
+
   test('escapes hostile text', () => {
     const xml = renderStorage({
       ...data,
