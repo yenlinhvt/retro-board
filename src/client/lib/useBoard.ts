@@ -19,6 +19,9 @@ export type SocketFactory = (boardId: string, auth: BoardAuth, getAuth: () => Bo
 export const defaultSocketFactory: SocketFactory = (boardId, _auth, getAuth) =>
   io({ auth: (cb) => cb({ boardId, ...getAuth() }), transports: ['websocket', 'polling'] });
 
+/** Emit shape shared by panels; BoardPage supplies one that also toasts failures. */
+export type Emit = <E extends keyof ClientToServer>(event: E, payload: Parameters<ClientToServer[E]>[0]) => Promise<Ack>;
+
 export const EMIT_TIMEOUT_MS = 10_000;
 
 export function useBoard(

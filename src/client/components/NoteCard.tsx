@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { LIMITS } from '../../shared/constants';
 import type { Ack, NoteView } from '../../shared/types';
 
@@ -25,6 +25,8 @@ export function NoteCard({
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(note.text);
+  const [saving, setSaving] = useState(false);
+  const inFlight = useRef(false);
   const canEdit = note.isMine && !readOnly;
   const canDelete = !readOnly && (note.isMine || (isAdmin && note.isPublic));
 
@@ -33,9 +35,16 @@ export function NoteCard({
   };
   const save = async () => {
     const t = draft.trim();
-    if (!t) return;
-    const ack = await actions.onEdit(note.id, t);
-    if (ack.ok) setEditing(false);
+    if (!t || inFlight.current) return;
+    inFlight.current = true;
+    setSaving(true);
+    try {
+      const ack = await actions.onEdit(note.id, t);
+      if (ack.ok) setEditing(false);
+    } finally {
+      inFlight.current = false;
+      setSaving(false);
+    }
   };
 
   return (
@@ -50,7 +59,7 @@ export function NoteCard({
             rows={3}
           />
           <div className="note-actions">
-            <button className="btn btn-primary" type="button" onClick={save} disabled={!draft.trim()}>
+            <button className="btn btn-primary" type="button" onClick={save} disabled={!draft.trim() || saving}>
               Save
             </button>
             <button

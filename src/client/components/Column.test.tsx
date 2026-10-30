@@ -124,3 +124,30 @@ test("someone else's private notes are never rendered, even for an admin", () =>
   render(<Column {...props({ isAdmin: true, notes: [note({ id: 'z', text: 'secret', isMine: false, isPublic: false })] })} />);
   expect(screen.queryByText('secret')).toBeNull();
 });
+
+test('double submit while the add ack is pending only adds once', async () => {
+  let resolve!: (a: { ok: true }) => void;
+  const onAdd = vi.fn().mockReturnValue(new Promise((r) => { resolve = r; }));
+  render(<Column {...props({ onAdd })} />);
+  const box = screen.getByLabelText(/Add a note/);
+  fireEvent.change(box, { target: { value: 'once' } });
+  fireEvent.keyDown(box, { key: 'Enter', ctrlKey: true });
+  fireEvent.keyDown(box, { key: 'Enter', ctrlKey: true });
+  expect((screen.getByRole('button', { name: 'Add' }) as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.click(screen.getByRole('button', { name: 'Add' }));
+  expect(onAdd).toHaveBeenCalledTimes(1);
+  await act(async () => resolve({ ok: true }));
+  expect((box as HTMLTextAreaElement).value).toBe('');
+});
+
+test('double save while the edit ack is pending only edits once', async () => {
+  let resolve!: (a: { ok: true }) => void;
+  const onEdit = vi.fn().mockReturnValue(new Promise((r) => { resolve = r; }));
+  render(<Column {...props({ onEdit, notes: [note({ text: 'old' })] })} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+  fireEvent.change(screen.getByLabelText('Edit note'), { target: { value: 'new' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+  expect(onEdit).toHaveBeenCalledTimes(1);
+  await act(async () => resolve({ ok: true }));
+});

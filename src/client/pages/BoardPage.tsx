@@ -5,7 +5,12 @@ import { getIdentity, setName as storeName } from '../lib/identity';
 import { JoinPrompt } from '../components/JoinPrompt';
 import { Column, type SortMode } from '../components/Column';
 import { Presence } from '../components/Presence';
+import { TimerBar } from '../components/TimerBar';
+import { ActionItems } from '../components/ActionItems';
+import { AdminPanel } from '../components/AdminPanel';
+import { ExportPanel } from '../components/ExportPanel';
 import type { Ack } from '../../shared/types';
+import type { Emit } from '../lib/useBoard';
 
 const SORT_KEY = 'retro.sort';
 const TOAST_MS = 4000;
@@ -67,7 +72,7 @@ export function BoardPage() {
   const [toast, setToast] = useState<string | null>(null);
 
   const auth = joinName ? { participantId: identity.participantId, name: joinName, adminToken: adminToken.current } : null;
-  const { state, status, emit } = useBoard(boardId, auth);
+  const { state, receivedAt, status, emit } = useBoard(boardId, auth);
 
   useEffect(() => {
     if (!toast) return;
@@ -83,6 +88,8 @@ export function BoardPage() {
     },
     [],
   );
+
+  const runEmit: Emit = (event, payload) => run(emit(event, payload));
 
   if (!joinName) {
     return (
@@ -137,8 +144,7 @@ export function BoardPage() {
         </span>
       </header>
 
-      {/* Task 17 wires TimerBar here */}
-      <section aria-label="Timer" data-slot="timer" />
+      <TimerBar timer={state.timer} serverNow={state.serverNow} receivedAt={receivedAt} isAdmin={state.isAdmin} emit={runEmit} />
 
       <div className="board-grid">
         {state.columns.map((name, i) => (
@@ -173,10 +179,13 @@ export function BoardPage() {
         }}
       />
 
-      {/* Task 17 wires ActionItems here */}
-      <section aria-label="Action items" data-slot="action-items" />
-      {/* Task 17 wires AdminPanel here (state.isAdmin) */}
-      {state.isAdmin && <section aria-label="Admin" data-slot="admin" />}
+      <ActionItems items={state.actionItems} notes={state.notes} participants={state.participants} readOnly={closed} emit={runEmit} />
+      {state.isAdmin && (
+        <>
+          <AdminPanel state={state} emit={runEmit} />
+          <ExportPanel boardId={state.id} adminToken={adminToken.current} exportView={state.export} />
+        </>
+      )}
 
       {toast && (
         <div className="toast" role="alert">

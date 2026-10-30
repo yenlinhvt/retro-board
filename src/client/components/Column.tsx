@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { LIMITS } from '../../shared/constants';
 import type { Ack, NoteView } from '../../shared/types';
 import { NoteCard, type NoteActions } from './NoteCard';
@@ -33,6 +33,8 @@ export type ColumnProps = {
 export function Column(props: ColumnProps) {
   const { index, name, notes, sort, votesRemaining, onSortChange, onAdd, readOnly, isAdmin } = props;
   const [draft, setDraft] = useState('');
+  const [pending, setPending] = useState(false);
+  const inFlight = useRef(false);
   const actions: NoteActions = {
     onEdit: props.onEdit,
     onDelete: props.onDelete,
@@ -51,9 +53,16 @@ export function Column(props: ColumnProps) {
   const trimmed = draft.trim();
 
   const submit = async () => {
-    if (!trimmed) return;
-    const ack = await onAdd(index, trimmed);
-    if (ack.ok) setDraft('');
+    if (!trimmed || inFlight.current) return;
+    inFlight.current = true;
+    setPending(true);
+    try {
+      const ack = await onAdd(index, trimmed);
+      if (ack.ok) setDraft('');
+    } finally {
+      inFlight.current = false;
+      setPending(false);
+    }
   };
 
   return (
@@ -102,7 +111,7 @@ export function Column(props: ColumnProps) {
             <span className={`muted${draft.length >= LIMITS.noteText ? ' error' : ''}`}>
               {draft.length}/{LIMITS.noteText}
             </span>
-            <button className="btn btn-primary" type="button" disabled={!trimmed} onClick={submit}>
+            <button className="btn btn-primary" type="button" disabled={!trimmed || pending} onClick={submit}>
               Add
             </button>
           </div>
