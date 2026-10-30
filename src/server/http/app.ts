@@ -8,13 +8,22 @@ import { Server } from 'socket.io';
 import type { ClientToServer, ServerToClient } from '../../shared/types';
 import type { Config } from '../config';
 import type { Db } from '../db/client';
+import { attachRealtime, type Realtime } from '../realtime/socket';
 import { registerBoardRoutes } from './board-routes';
 
-export type AppDeps = { config: Config; db: Db; now: () => number; fetch: typeof fetch; logStream?: NodeJS.WritableStream };
+export type AppDeps = {
+  config: Config;
+  db: Db;
+  now: () => number;
+  fetch: typeof fetch;
+  logStream?: NodeJS.WritableStream;
+  isConfluenceConnected?: () => Promise<boolean>;
+  onClosed?: (boardId: string) => void;
+};
 
 export async function buildApp(
   deps: AppDeps,
-): Promise<{ app: FastifyInstance; io: Server<ClientToServer, ServerToClient> }> {
+): Promise<{ app: FastifyInstance; io: Server<ClientToServer, ServerToClient>; realtime: Realtime }> {
   const app = Fastify({
     trustProxy: deps.config.trustProxy,
     logger: {
@@ -56,6 +65,12 @@ export async function buildApp(
   app.addHook('onClose', async () => {
     await io.close();
   });
+  const { broadcastBoard } = attachRealtime(io, {
+    ...deps,
+    isConfluenceConnected: deps.isConfluenceConnected ?? (async () => false),
+    onClosed: deps.onClosed ?? (() => {}),
+    log: app.log,
+  });
 
-  return { app, io };
+  return { app, io, realtime: { broadcastBoard } };
 }
