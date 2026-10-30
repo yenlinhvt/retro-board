@@ -6,9 +6,12 @@ import {
   saveTokens,
   setDefaults,
   setSite,
+  getAccessToken,
   getValidToken,
+  isConnected,
   RECONNECT_MSG,
 } from '../confluence/connection-store';
+import { ConfluenceError, listSpaces, searchPages, type ClientCtx } from '../confluence/confluence-client';
 import { DomainError } from '../errors';
 import { AtlassianHttpError, buildAuthorizeUrl, exchangeCode, listSites } from '../confluence/oauth';
 import { safeEqual, randomId } from '../security/tokens';
@@ -24,6 +27,8 @@ const defaultsSchema = z.object({
   parentId: z.string().max(200).nullish(),
   parentTitle: z.string().max(200).nullish(),
 });
+
+const pagesQuerySchema = z.object({ spaceId: z.string().min(1).max(200), q: z.string().max(200).optional() });
 
 export function registerSettingsRoutes(app: FastifyInstance, deps: AppDeps): void {
   const { config, db } = deps;
@@ -54,6 +59,21 @@ export function registerSettingsRoutes(app: FastifyInstance, deps: AppDeps): voi
       if (err instanceof DomainError) return reply.code(403).send({ error: 'forbidden', message: err.message });
       if (err instanceof AtlassianHttpError && err.status >= 400 && err.status < 500) {
         return reply.code(403).send({ error: 'forbidden', message: RECONNECT_MSG });
+      }
+      throw err;
+    }
+  };
+
+  /** Confluence call for the owner picker; not connected (or no site) is 409, a rejected token is 403 reconnect. */
+  const withConfluence = async <T>(reply: FastifyReply, fn: (c: ClientCtx) => Promise<T>): Promise<T | FastifyReply> => {
+    if (!(await isConnected(db))) return reply.code(409).send({ error: 'not_connected' });
+    try {
+      return await fn({ fetch: deps.fetch, ...(await getAccessToken(deps)) });
+    } catch (err) {
+      if (err instanceof DomainError) return reply.code(403).send({ error: 'forbidden', message: err.message });
+      if (err instanceof ConfluenceError && err.status >= 400 && err.status < 500) {
+        const message = err.status === 401 ? RECONNECT_MSG : `Confluence request failed (${err.status})`;
+        return reply.code(403).send({ error: 'forbidden', message });
       }
       throw err;
     }
@@ -185,5 +205,19 @@ export function registerSettingsRoutes(app: FastifyInstance, deps: AppDeps): voi
   app.post('/api/settings/atlassian/disconnect', atlassian, async () => {
     await disconnect(db);
     return { ok: true };
+  });
+
+  app.get('/api/settings/confluence/spaces', atlassian, async (req, reply) => {
+    const { q } = req.query as { q?: unknown };
+    return withConfluence(reply, async (c) => ({ spaces: await listSpaces(c, typeof q === 'string' ? q : undefined) }));
+  });
+
+  app.get('/api/settings/confluence/pages', atlassian, async (req, reply) => {
+    const parsed = pagesQuerySchema.safeParse(req.query);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: 'invalid_input', message: parsed.error.issues[0]?.message ?? 'invalid' });
+    }
+    const { spaceId, q } = parsed.data;
+    return withConfluence(reply, async (c) => ({ pages: await searchPages(c, spaceId, q ?? '') }));
   });
 }

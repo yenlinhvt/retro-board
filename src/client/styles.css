@@ -407,3 +407,9 @@ select {
     animation-duration: 3s;
   }
 }
+
+a.btn {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+}

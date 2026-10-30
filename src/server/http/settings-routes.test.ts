@@ -24,6 +24,7 @@ let db: Db;
 let sites: { id: string; url: string; name: string }[];
 let tokenStatus: number;
 let resourcesStatus: number;
+let confluenceStatus: number;
 
 const fakeFetch = (async (url: string) => {
   const j = (status: number, b: unknown) => new Response(JSON.stringify(b), { status });
@@ -33,6 +34,12 @@ const fakeFetch = (async (url: string) => {
       : j(tokenStatus, { error: 'bad' });
   }
   if (url.includes('accessible-resources')) return resourcesStatus === 200 ? j(200, sites) : j(resourcesStatus, {});
+  if (url.includes('/wiki/api/v2/spaces?')) {
+    return confluenceStatus === 200
+      ? j(200, { results: [{ id: 1, key: 'T', name: 'Team' }, { id: 2, key: 'D', name: 'Docs' }] })
+      : j(confluenceStatus, {});
+  }
+  if (url.includes('/wiki/api/v2/spaces/')) return j(200, { results: [{ id: 'p1', title: 'Retros' }] });
   return j(404, {});
 }) as unknown as typeof fetch;
 
@@ -50,6 +57,7 @@ beforeEach(() => {
   sites = [{ id: 'cloud-1', url: 'https://x.atlassian.net', name: 'X' }];
   tokenStatus = 200;
   resourcesStatus = 200;
+  confluenceStatus = 200;
 });
 afterEach(async () => {
   await app.close();
@@ -250,4 +258,57 @@ test('sites returns 403 reconnect message when the token is revoked or refresh i
   r = await app.inject({ method: 'GET', url: '/api/settings/atlassian/sites', headers: { cookie: owner } });
   expect(r.statusCode).toBe(403);
   expect(r.json()).toEqual({ error: 'forbidden', message: msg });
+});
+
+async function connectedOwner(): Promise<string> {
+  const owner = await login();
+  const { cookie, state } = await connect(owner);
+  await app.inject({ method: 'GET', url: `/api/settings/atlassian/callback?code=c&state=${state}`, headers: { cookie } });
+  return owner;
+}
+
+test('owner picker: spaces are filtered by q and pages need a spaceId', async () => {
+  await boot();
+  const owner = await connectedOwner();
+  const get = (url: string) => app.inject({ method: 'GET', url, headers: { cookie: owner } });
+  let r = await get('/api/settings/confluence/spaces?q=doc');
+  expect(r.statusCode).toBe(200);
+  expect(r.json()).toEqual({ spaces: [{ id: '2', key: 'D', name: 'Docs' }] });
+  r = await get('/api/settings/confluence/pages?spaceId=1&q=ret');
+  expect(r.statusCode).toBe(200);
+  expect(r.json()).toEqual({ pages: [{ id: 'p1', title: 'Retros' }] });
+  r = await get('/api/settings/confluence/pages?q=ret');
+  expect(r.statusCode).toBe(400);
+  expect(r.json().error).toBe('invalid_input');
+});
+
+test('owner picker: requires owner, Atlassian config, a connection with a site; maps reconnect to 403', async () => {
+  await boot();
+  const url = '/api/settings/confluence/spaces';
+  expect((await app.inject({ method: 'GET', url })).statusCode).toBe(401);
+  const owner = await login();
+  let r = await app.inject({ method: 'GET', url, headers: { cookie: owner } });
+  expect(r.statusCode).toBe(409);
+  expect(r.json()).toEqual({ error: 'not_connected' });
+  r = await app.inject({ method: 'GET', url: '/api/settings/confluence/pages?spaceId=1', headers: { cookie: owner } });
+  expect(r.statusCode).toBe(409);
+  // tokens present but no site chosen yet
+  sites = [];
+  const { cookie, state } = await connect(owner);
+  await app.inject({ method: 'GET', url: `/api/settings/atlassian/callback?code=c&state=${state}`, headers: { cookie } });
+  r = await app.inject({ method: 'GET', url, headers: { cookie: owner } });
+  expect(r.statusCode).toBe(409);
+  // site chosen, Confluence rejects the token
+  await db.update(atlassianConnection).set({ cloudId: 'cloud-1', siteUrl: 'https://x.atlassian.net', siteName: 'X' });
+  confluenceStatus = 401;
+  r = await app.inject({ method: 'GET', url, headers: { cookie: owner } });
+  expect(r.statusCode).toBe(403);
+  expect(r.json()).toEqual({ error: 'forbidden', message: 'Atlassian connection expired — owner needs to reconnect in Settings' });
+});
+
+test('owner picker routes are 404 when Atlassian is not configured', async () => {
+  await boot({}, false);
+  const owner = await login();
+  const r = await app.inject({ method: 'GET', url: '/api/settings/confluence/spaces', headers: { cookie: owner } });
+  expect(r.statusCode).toBe(404);
 });
