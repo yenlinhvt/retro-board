@@ -10,6 +10,7 @@ import type { Config } from '../config';
 import type { Db } from '../db/client';
 import { attachRealtime, type Realtime } from '../realtime/socket';
 import { registerBoardRoutes } from './board-routes';
+import { registerSettingsRoutes } from './settings-routes';
 
 export type AppDeps = {
   config: Config;
@@ -45,6 +46,7 @@ export async function buildApp(
   await app.register(fastifyRateLimit, { global: false });
 
   registerBoardRoutes(app, deps);
+  registerSettingsRoutes(app, deps);
 
   const clientDir = path.resolve(process.cwd(), 'dist/client');
   const hasClient = fs.existsSync(clientDir);
