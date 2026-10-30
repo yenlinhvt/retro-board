@@ -33,12 +33,23 @@ function pageResult(c: ClientCtx, p: PageResponse): { id: string; version: numbe
   return { id: p.id, version: p.version.number, url: `${c.siteUrl.replace(/\/$/, '')}/wiki${p._links.webui}` };
 }
 
+const MAX_SPACE_PAGES = 20;
+
+/** Current global spaces, following `_links.next` cursors (up to 20 pages), filtered by name. */
 export async function listSpaces(c: ClientCtx, query?: string): Promise<{ id: string; key: string; name: string }[]> {
-  const res = await request(c, 'GET', '/spaces?limit=250');
-  await ensureOk(res);
-  const json = (await res.json()) as { results: { id: string | number; key: string; name: string }[] };
+  type SpacesPage = { results: { id: string | number; key: string; name: string }[]; _links?: { next?: string } };
+  const all: SpacesPage['results'] = [];
+  let path: string | undefined = '/spaces?type=global&status=current&limit=250';
+  for (let i = 0; path && i < MAX_SPACE_PAGES; i++) {
+    const res = await request(c, 'GET', path);
+    await ensureOk(res);
+    const json = (await res.json()) as SpacesPage;
+    all.push(...json.results);
+    // `next` is site-relative (e.g. "/wiki/api/v2/spaces?cursor=…"); keep only the part after the API base.
+    path = json._links?.next?.replace(/^.*?\/api\/v2/, '');
+  }
   const q = query?.trim().toLowerCase();
-  return json.results
+  return all
     .filter((s) => !q || s.name.toLowerCase().includes(q))
     .map((s) => ({ id: String(s.id), key: s.key, name: s.name }));
 }

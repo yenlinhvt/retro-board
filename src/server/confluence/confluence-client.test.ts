@@ -76,8 +76,48 @@ describe('confluence client', () => {
   test('listSpaces filters by name case-insensitively and stringifies id', async () => {
     const { c, fetch } = ctx({ body: { results: [{ id: 1, key: 'ENG', name: 'Engineering' }, { id: '2', key: 'HR', name: 'People' }] } });
     expect(await listSpaces(c, 'eNg')).toEqual([{ id: '1', key: 'ENG', name: 'Engineering' }]);
-    expect((fetch.mock.calls[0] as unknown as [string])[0]).toBe(`${BASE}/spaces?limit=250`);
+    expect((fetch.mock.calls[0] as unknown as [string])[0]).toBe(`${BASE}/spaces?type=global&status=current&limit=250`);
     expect(await listSpaces(c)).toHaveLength(2);
+  });
+
+  test('listSpaces follows _links.next cursors and filters across all pages', async () => {
+    const pages: Record<string, unknown> = {
+      first: { results: [{ id: 1, key: 'A', name: 'Alpha' }], _links: { next: '/wiki/api/v2/spaces?type=global&status=current&limit=250&cursor=c2' } },
+      c2: { results: [{ id: 2, key: 'ENG', name: 'Engineering' }], _links: { next: '/wiki/api/v2/spaces?type=global&status=current&limit=250&cursor=c3' } },
+      c3: { results: [{ id: 3, key: 'ENG2', name: 'Eng Platform' }], _links: {} },
+    };
+    const fetch = vi.fn(async (url: string) => {
+      const cursor = new URL(url).searchParams.get('cursor') ?? 'first';
+      return new Response(JSON.stringify(pages[cursor]), { status: 200 });
+    });
+    const c: ClientCtx = { fetch: fetch as unknown as typeof globalThis.fetch, token: 't', cloudId: 'cid', siteUrl: 'https://x.atlassian.net' };
+    expect(await listSpaces(c, 'eng')).toEqual([
+      { id: '2', key: 'ENG', name: 'Engineering' },
+      { id: '3', key: 'ENG2', name: 'Eng Platform' },
+    ]);
+    expect(fetch.mock.calls.map((call) => (call as unknown as [string])[0])).toEqual([
+      `${BASE}/spaces?type=global&status=current&limit=250`,
+      `${BASE}/spaces?type=global&status=current&limit=250&cursor=c2`,
+      `${BASE}/spaces?type=global&status=current&limit=250&cursor=c3`,
+    ]);
+  });
+
+  test('listSpaces stops after 20 pages', async () => {
+    const fetch = vi.fn(async () =>
+      new Response(JSON.stringify({ results: [{ id: 1, key: 'A', name: 'A' }], _links: { next: '/wiki/api/v2/spaces?cursor=again' } }), { status: 200 }),
+    );
+    const c: ClientCtx = { fetch: fetch as unknown as typeof globalThis.fetch, token: 't', cloudId: 'cid', siteUrl: 'https://x.atlassian.net' };
+    expect(await listSpaces(c)).toHaveLength(20);
+    expect(fetch).toHaveBeenCalledTimes(20);
+  });
+
+  test('listSpaces throws ConfluenceError when a later page fails', async () => {
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ results: [], _links: { next: '/wiki/api/v2/spaces?cursor=c2' } }), { status: 200 }))
+      .mockResolvedValueOnce(new Response('nope', { status: 500 }));
+    const c: ClientCtx = { fetch: fetch as unknown as typeof globalThis.fetch, token: 't', cloudId: 'cid', siteUrl: 'https://x.atlassian.net' };
+    await expect(listSpaces(c)).rejects.toMatchObject({ status: 500 });
   });
 
   test('searchPages encodes values and omits empty title', async () => {
