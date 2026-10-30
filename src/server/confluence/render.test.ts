@@ -33,6 +33,7 @@ describe('render', () => {
     expect(xml).toContain('&lt;script&gt;');
     expect(xml).not.toContain('<script>');
     expect(xml).not.toContain('<b>x');
+    expect(xml).toContain('<strong>&lt;b&gt;x&lt;/b&gt;</strong>');
     expect(xml).toContain('&lt;i&gt;Ann&lt;/i&gt;');
     expect(xml).toContain(']]&gt;');
     expect(xml).toContain('🎉');
@@ -58,6 +59,10 @@ describe('render', () => {
     expect(xml).toContain('<th>Item</th><th>Owner</th><th>From note</th>');
     expect(xml).toContain('<td>Fix<br/>it</td><td>Bob &amp; co</td><td>orig</td>');
     expect(xml).toContain('<td>Other</td><td></td><td></td>');
+  });
+
+  test('intro names the board, date and participants', () => {
+    expect(renderStorage(data).startsWith('<p><strong>Sprint 42</strong> · 2026-10-30 · Participants: Ann, Bob</p>')).toBe(true);
   });
 
   test('no action items shows placeholder, not a table', () => {

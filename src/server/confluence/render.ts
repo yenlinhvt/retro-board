@@ -35,7 +35,7 @@ function votesText(n: number): string {
 
 export function renderStorage(d: ExportData): string {
   const parts: string[] = [];
-  parts.push(`<p>${esc(d.date)} · Participants: ${esc(d.participants.join(', '))}</p>`);
+  parts.push(`<p><strong>${esc(d.boardName)}</strong> · ${esc(d.date)} · Participants: ${esc(d.participants.join(', '))}</p>`);
   for (const col of d.columns) {
     parts.push(`<h2>${esc(col.name)}</h2>`);
     if (col.notes.length === 0) {
