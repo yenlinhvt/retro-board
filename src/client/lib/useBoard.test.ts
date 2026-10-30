@@ -28,7 +28,7 @@ class FakeSocket implements BoardSocket {
 const snap = { id: 'b1', name: 'Sprint' } as unknown as BoardSnapshot;
 const auth = { participantId: 'p1', name: 'Ada' };
 let socket: FakeSocket;
-const factory = vi.fn((_id: string, _auth: unknown) => (socket = new FakeSocket()));
+const factory = vi.fn((_id: string, _auth: unknown, _get: () => any) => (socket = new FakeSocket()));
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -45,7 +45,7 @@ test('does not connect while auth is null', () => {
 test('status transitions: connecting -> connected -> reconnecting -> connected', () => {
   vi.setSystemTime(1000);
   const { result } = renderHook(() => useBoard('b1', auth, factory));
-  expect(factory).toHaveBeenCalledWith('b1', { participantId: 'p1', name: 'Ada', adminToken: undefined });
+  expect(factory).toHaveBeenCalledWith('b1', { participantId: 'p1', name: 'Ada', adminToken: undefined }, expect.any(Function));
   expect(result.current.status).toBe('connecting');
   act(() => socket.fire('board:state', snap));
   expect(result.current.status).toBe('connected');
@@ -117,4 +117,14 @@ test('no reconnect after board:deleted', () => {
   act(() => socket.fire('board:deleted'));
   act(() => socket.fire('disconnect', 'io server disconnect'));
   expect(socket.connectCalls).toBe(0);
+});
+
+test('rename updates the auth used on reconnect without recreating the socket', () => {
+  const { rerender } = renderHook(({ a }) => useBoard('b1', a, factory), { initialProps: { a: auth } });
+  const first = socket;
+  const getAuth = factory.mock.calls[0]![2];
+  rerender({ a: { ...auth, name: 'Ada L' } });
+  expect(factory).toHaveBeenCalledTimes(1);
+  expect(first.disconnected).toBe(false);
+  expect(getAuth().name).toBe('Ada L');
 });

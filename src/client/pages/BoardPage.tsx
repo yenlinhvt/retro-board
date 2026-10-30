@@ -76,9 +76,10 @@ export function BoardPage() {
   }, [toast]);
 
   const run = useCallback(
-    async (p: Promise<Ack>) => {
+    async (p: Promise<Ack>): Promise<Ack> => {
       const ack = await p;
       if (!ack.ok) setToast(ack.message);
+      return ack;
     },
     [],
   );
@@ -164,8 +165,11 @@ export function BoardPage() {
       <Presence
         participants={state.participants}
         onRename={(n) => {
-          storeName(n);
-          void run(emit('participant:rename', { name: n }));
+          void run(emit('participant:rename', { name: n })).then((ack) => {
+            if (!ack.ok) return;
+            storeName(n);
+            setJoinName(n);
+          });
         }}
       />
 

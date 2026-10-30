@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, expect, test, vi } from 'vitest';
 import { Column, type ColumnProps } from './Column';
 import type { NoteView } from '../../shared/types';
@@ -11,7 +11,7 @@ const note = (o: Partial<NoteView> = {}): NoteView => ({
 });
 const props = (o: Partial<ColumnProps> = {}): ColumnProps => ({
   index: 0, name: 'Went well', notes: [], sort: 'newest', votesRemaining: 3, onSortChange: vi.fn(),
-  onAdd: vi.fn(), onEdit: vi.fn(), onDelete: vi.fn(), onShare: vi.fn(), onVote: vi.fn(), onUnvote: vi.fn(),
+  onAdd: vi.fn().mockResolvedValue({ ok: true }), onEdit: vi.fn().mockResolvedValue({ ok: true }), onDelete: vi.fn(), onShare: vi.fn(), onVote: vi.fn(), onUnvote: vi.fn(),
   readOnly: false, isAdmin: false, ...o,
 });
 
@@ -51,13 +51,15 @@ test('readOnly hides add box and edit controls', () => {
   expect((screen.getByRole('button', { name: 'Add vote' }) as HTMLButtonElement).disabled).toBe(true);
 });
 
-test('Ctrl+Enter submits and clears; counter shown', () => {
+test('Ctrl+Enter submits and clears; counter shown', async () => {
   const p = props();
   render(<Column {...p} />);
   const box = screen.getByLabelText(/Add a note/);
   fireEvent.change(box, { target: { value: ' idea ' } });
   expect(screen.getByText('6/1000')).toBeTruthy();
-  fireEvent.keyDown(box, { key: 'Enter', ctrlKey: true });
+  await act(async () => {
+    fireEvent.keyDown(box, { key: 'Enter', ctrlKey: true });
+  });
   expect(p.onAdd).toHaveBeenCalledWith(0, 'idea');
   expect((box as HTMLTextAreaElement).value).toBe('');
 });
@@ -81,11 +83,44 @@ test('delete asks for confirmation; admin can delete others public notes', () =>
   confirm.mockRestore();
 });
 
-test('edit with Save/Cancel', () => {
+test('edit with Save/Cancel', async () => {
   const p = props({ notes: [note({ text: 'old' })] });
   render(<Column {...p} />);
   fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
   fireEvent.change(screen.getByLabelText('Edit note'), { target: { value: 'new' } });
-  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+  });
   expect(p.onEdit).toHaveBeenCalledWith('n1', 'new');
+  expect(screen.queryByLabelText('Edit note')).toBeNull();
+});
+
+const fail = { ok: false, error: 'board_closed', message: 'closed' };
+
+test('rejected add keeps the typed text', async () => {
+  const p = props({ onAdd: vi.fn().mockResolvedValue(fail) });
+  render(<Column {...p} />);
+  const box = screen.getByLabelText(/Add a note/) as HTMLTextAreaElement;
+  fireEvent.change(box, { target: { value: 'keep me' } });
+  await act(async () => {
+    fireEvent.keyDown(box, { key: 'Enter', metaKey: true });
+  });
+  expect(p.onAdd).toHaveBeenCalled();
+  expect(box.value).toBe('keep me');
+});
+
+test('rejected edit stays in edit mode with the draft', async () => {
+  const p = props({ onEdit: vi.fn().mockResolvedValue(fail), notes: [note({ text: 'old' })] });
+  render(<Column {...p} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+  fireEvent.change(screen.getByLabelText('Edit note'), { target: { value: 'new' } });
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+  });
+  expect((screen.getByLabelText('Edit note') as HTMLTextAreaElement).value).toBe('new');
+});
+
+test("someone else's private notes are never rendered, even for an admin", () => {
+  render(<Column {...props({ isAdmin: true, notes: [note({ id: 'z', text: 'secret', isMine: false, isPublic: false })] })} />);
+  expect(screen.queryByText('secret')).toBeNull();
 });

@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import { LIMITS } from '../../shared/constants';
-import type { NoteView } from '../../shared/types';
+import type { Ack, NoteView } from '../../shared/types';
 
 export type NoteActions = {
-  onEdit: (noteId: string, text: string) => void;
+  onEdit: (noteId: string, text: string) => Promise<Ack>;
   onDelete: (noteId: string) => void;
   onShare: (noteId: string) => void;
   onVote: (noteId: string) => void;
@@ -31,11 +31,11 @@ export function NoteCard({
   const confirmDelete = () => {
     if (window.confirm('Delete this note?')) actions.onDelete(note.id);
   };
-  const save = () => {
+  const save = async () => {
     const t = draft.trim();
     if (!t) return;
-    actions.onEdit(note.id, t);
-    setEditing(false);
+    const ack = await actions.onEdit(note.id, t);
+    if (ack.ok) setEditing(false);
   };
 
   return (

@@ -13,10 +13,11 @@ export interface BoardSocket {
   connect(): unknown;
 }
 
-export type SocketFactory = (boardId: string, auth: BoardAuth) => BoardSocket;
+/** getAuth returns the latest auth so reconnect handshakes carry current values (e.g. a renamed participant). */
+export type SocketFactory = (boardId: string, auth: BoardAuth, getAuth: () => BoardAuth) => BoardSocket;
 
-export const defaultSocketFactory: SocketFactory = (boardId, auth) =>
-  io({ auth: { boardId, ...auth }, transports: ['websocket', 'polling'] });
+export const defaultSocketFactory: SocketFactory = (boardId, _auth, getAuth) =>
+  io({ auth: (cb) => cb({ boardId, ...getAuth() }), transports: ['websocket', 'polling'] });
 
 export const EMIT_TIMEOUT_MS = 10_000;
 
@@ -31,16 +32,18 @@ export function useBoard(
   const socketRef = useRef<BoardSocket | null>(null);
 
   const participantId = auth?.participantId;
-  const name = auth?.name;
   const adminToken = auth?.adminToken;
   const hasAuth = auth !== null;
+  const authRef = useRef(auth);
+  authRef.current = auth;
 
   useEffect(() => {
     if (!hasAuth) return;
     setState(null);
     setStatus('connecting');
     let ended = false;
-    const socket = socketFactory(boardId, { participantId: participantId!, name: name!, adminToken });
+    const initial: BoardAuth = { participantId: participantId!, name: authRef.current!.name, adminToken };
+    const socket = socketFactory(boardId, initial, () => authRef.current ?? initial);
     socketRef.current = socket;
 
     socket.on('board:state', (s: BoardSnapshot) => {
@@ -75,7 +78,7 @@ export function useBoard(
       socket.disconnect();
       if (socketRef.current === socket) socketRef.current = null;
     };
-  }, [boardId, hasAuth, participantId, name, adminToken, socketFactory]);
+  }, [boardId, hasAuth, participantId, adminToken, socketFactory]);
 
   const emit = useCallback(
     <E extends keyof ClientToServer>(event: E, payload: Parameters<ClientToServer[E]>[0]): Promise<Ack> =>

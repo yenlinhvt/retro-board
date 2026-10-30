@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { LIMITS } from '../../shared/constants';
-import type { NoteView } from '../../shared/types';
+import type { Ack, NoteView } from '../../shared/types';
 import { NoteCard, type NoteActions } from './NoteCard';
 
 export type SortMode = 'newest' | 'votes';
@@ -20,7 +20,7 @@ export type ColumnProps = {
   sort: SortMode;
   votesRemaining: number;
   onSortChange: (s: SortMode) => void;
-  onAdd: (columnIndex: number, text: string) => void;
+  onAdd: (columnIndex: number, text: string) => Promise<Ack>;
   onEdit: NoteActions['onEdit'];
   onDelete: NoteActions['onDelete'];
   onShare: NoteActions['onShare'];
@@ -50,10 +50,10 @@ export function Column(props: ColumnProps) {
   );
   const trimmed = draft.trim();
 
-  const submit = () => {
+  const submit = async () => {
     if (!trimmed) return;
-    onAdd(index, trimmed);
-    setDraft('');
+    const ack = await onAdd(index, trimmed);
+    if (ack.ok) setDraft('');
   };
 
   return (
@@ -76,7 +76,7 @@ export function Column(props: ColumnProps) {
       </header>
 
       {(!readOnly || mine.length > 0) && (
-        <div className="column-area" aria-label="Only you">
+        <div className="column-area" role="group" aria-label="Only you">
           <h3>Only you</h3>
           <ul className="note-list">
             {mine.map((n) => (
@@ -110,7 +110,7 @@ export function Column(props: ColumnProps) {
         </div>
       )}
 
-      <div className="column-area" aria-label="Shared">
+      <div className="column-area" role="group" aria-label="Shared">
         <h3>Shared</h3>
         <ul className="note-list">
           {shared.map((n) => (

@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import type { BoardSnapshot } from '../../shared/types';
@@ -111,7 +111,7 @@ test('admin token is stored, scrubbed from the URL, passed to the socket, and re
   expect(hook.useBoard).toHaveBeenLastCalledWith('b1', expect.objectContaining({ adminToken: 'SECRET' }));
 });
 
-test('rename emits and updates stored name', () => {
+test('rename emits and updates stored name and auth after ack', async () => {
   localStorage.setItem('retro.name', 'Ada');
   hook.useBoard.mockReturnValue({ state: snap(), receivedAt: 0, status: 'connected', emit });
   mount();
@@ -119,5 +119,6 @@ test('rename emits and updates stored name', () => {
   fireEvent.change(screen.getByLabelText('New name'), { target: { value: 'Ada L' } });
   fireEvent.click(screen.getByRole('button', { name: 'Save name' }));
   expect(emit).toHaveBeenCalledWith('participant:rename', { name: 'Ada L' });
-  expect(localStorage.getItem('retro.name')).toBe('Ada L');
+  await waitFor(() => expect(localStorage.getItem('retro.name')).toBe('Ada L'));
+  expect(hook.useBoard).toHaveBeenLastCalledWith('b1', expect.objectContaining({ name: 'Ada L' }));
 });
