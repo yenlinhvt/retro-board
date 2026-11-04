@@ -1,13 +1,18 @@
 import { useState, type FormEvent } from 'react';
 import { LIMITS } from '../../shared/constants';
 import type { ParticipantView } from '../../shared/types';
+import { authorColor } from '../lib/authorColor';
 
 export function Presence({
   participants,
   onRename,
+  colorOf = authorColor,
+  canRename = true,
 }: {
   participants: ParticipantView[];
   onRename: (name: string) => void;
+  colorOf?: (publicId: string) => string;
+  canRename?: boolean;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState('');
@@ -30,12 +35,13 @@ export function Presence({
               role="img"
               aria-label={p.online ? 'online' : 'offline'}
             />
+            <span className="author-swatch" style={{ background: colorOf(p.publicId) }} aria-hidden="true" />
             {p.name}
             {p.isMe && <span className="muted"> (you)</span>}
           </li>
         ))}
       </ul>
-      {editing ? (
+      {!canRename ? null : editing ? (
         <form className="inline-form" onSubmit={submit}>
           <input
             aria-label="New name"

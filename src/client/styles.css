@@ -1,7 +1,9 @@
-/* Design tokens: calm, readable, laptop-on-a-video-call. 8px spacing scale. */
+/* Design tokens: bright and playful, readable on a video call. Always light. 8px spacing scale. */
 :root {
-  color-scheme: light dark;
-  --bg: #f6f5f2;
+  color-scheme: light;
+  --bg: #fbfaf7;
+  --board-bg: linear-gradient(135deg, #e0f7ff 0%, #fff4e0 50%, #ffe6f2 100%);
+  --note-text: #22252a;
   --surface: #ffffff;
   --text: #22252a;
   --muted: #5f6672;
@@ -23,24 +25,6 @@
   --font: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #16181c;
-    --surface: #1f2228;
-    --text: #e8e9ec;
-    --muted: #a0a6b1;
-    --border: #343944;
-    --accent: #7c93f0;
-    --accent-text: #11131a;
-    --danger: #f0867a;
-    --col-0: #7bbd8d;
-    --col-1: #dcb25c;
-    --col-2: #77a6dd;
-    --col-3: #a68fd6;
-    --shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 2px 8px rgb(0 0 0 / 0.3);
-  }
-}
-
 *,
 *::before,
 *::after {
@@ -50,7 +34,7 @@
 html,
 body {
   margin: 0;
-  background: var(--bg);
+  background: var(--board-bg) fixed, var(--bg);
   color: var(--text);
   font-family: var(--font);
   font-size: 16px;
@@ -239,13 +223,80 @@ select {
   color: var(--danger);
 }
 .column {
-  background: var(--surface);
-  border: 1px solid var(--border);
+  background: rgb(255 255 255 / 0.7);
   border-top: 4px solid var(--accent-col, var(--accent));
-  border-radius: var(--radius);
+  border-radius: 12px;
   box-shadow: var(--shadow);
   padding: var(--space-2);
   min-width: 0;
+}
+.column-area-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-1);
+}
+.column-area-header .btn {
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.board-header-actions {
+  margin-left: auto;
+  display: flex;
+  gap: var(--space-1);
+  flex-wrap: wrap;
+}
+/* Present mode: bigger stickies for screen-sharing. */
+.board--presenting .note {
+  font-size: 1.05rem;
+}
+.note-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 4px;
+}
+.note-thumbs {
+  font-weight: 700;
+  font-size: 1.1rem;
+  white-space: nowrap;
+}
+.emoji-picker {
+  position: relative;
+}
+.emoji-grid {
+  position: absolute;
+  z-index: 10;
+  top: calc(100% + 4px);
+  left: 0;
+  display: grid;
+  grid-template-columns: repeat(6, 36px);
+  gap: 2px;
+  padding: 6px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 6px 20px rgb(0 0 0 / 0.15);
+}
+.emoji-option {
+  width: 36px;
+  height: 36px;
+  font-size: 1.25rem;
+  line-height: 1;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+}
+.emoji-option:hover,
+.emoji-option:focus-visible {
+  background: var(--bg);
+}
+.column-area--private {
+  border: 2px dashed rgb(0 0 0 / 0.18);
+  border-radius: var(--radius);
+  padding: 0 var(--space-1) var(--space-1);
+  margin-top: var(--space-2);
 }
 .column-header {
   display: flex;
@@ -266,10 +317,6 @@ select {
   letter-spacing: 0.04em;
   margin: var(--space-2) 0 var(--space-1);
 }
-.sort-toggle {
-  display: flex;
-  gap: 4px;
-}
 .btn-small {
   min-height: 36px;
   padding: 4px 12px;
@@ -278,18 +325,33 @@ select {
   border-color: var(--accent);
   color: var(--accent);
 }
+/* Sticky notes: two per row, square, author-coloured, curled bottom-right corner. Long text grows the note. */
 .note-list {
   list-style: none;
   margin: 0 0 var(--space-1);
   padding: 0;
   display: grid;
-  gap: var(--space-1);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
 }
 .note {
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: var(--space-1) 12px;
+  aspect-ratio: 1 / 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 4px;
+  background: var(--note-color, #ffeb3b);
+  color: var(--note-text);
+  border-radius: 2px 2px 16px 2px;
+  box-shadow: 2px 4px 0 rgb(0 0 0 / 0.12);
+  padding: 10px;
+  min-width: 0;
+  font-size: 0.9rem;
+  line-height: 1.35;
+}
+.note textarea {
+  background: rgb(255 255 255 / 0.85);
+  padding: 6px 8px;
 }
 .note-text {
   white-space: pre-wrap;
@@ -297,8 +359,12 @@ select {
   margin: 0;
 }
 .note-author {
-  font-size: 0.875rem;
+  font-size: 0.8rem;
+  font-weight: 600;
   margin: 0;
+}
+.note .muted {
+  color: rgb(0 0 0 / 0.62);
 }
 .note-actions,
 .note-votes {
@@ -307,6 +373,31 @@ select {
   gap: var(--space-1);
   flex-wrap: wrap;
   margin-top: 4px;
+}
+.note .note-actions,
+.note .note-votes {
+  gap: 4px;
+}
+.note .btn {
+  min-height: 28px;
+  padding: 2px 8px;
+  font-size: 0.8rem;
+  background: rgb(255 255 255 / 0.55);
+  border-color: rgb(0 0 0 / 0.15);
+  color: var(--note-text);
+}
+.note .btn-primary {
+  background: var(--accent);
+  color: var(--accent-text);
+}
+.author-swatch {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border-radius: 3px 3px 6px 3px;
+  box-shadow: 1px 2px 0 rgb(0 0 0 / 0.15);
+  margin-right: 6px;
+  vertical-align: -2px;
 }
 .presence {
   margin-top: var(--space-3);

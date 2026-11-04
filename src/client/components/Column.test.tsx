@@ -10,8 +10,8 @@ const note = (o: Partial<NoteView> = {}): NoteView => ({
   isMine: true, votes: 0, myVotes: 0, createdAt: '2026-01-01T00:00:00Z', sharedAt: null, ...o,
 });
 const props = (o: Partial<ColumnProps> = {}): ColumnProps => ({
-  index: 0, name: 'Went well', notes: [], sort: 'newest', votesRemaining: 3, onSortChange: vi.fn(),
-  onAdd: vi.fn().mockResolvedValue({ ok: true }), onEdit: vi.fn().mockResolvedValue({ ok: true }), onDelete: vi.fn(), onShare: vi.fn(), onVote: vi.fn(), onUnvote: vi.fn(),
+  index: 0, name: 'Went well', notes: [], votesRemaining: 3,
+  onAdd: vi.fn().mockResolvedValue({ ok: true }), onEdit: vi.fn().mockResolvedValue({ ok: true }), onDelete: vi.fn(), onShare: vi.fn(), onVote: vi.fn(), onUnvote: vi.fn(), onShareAll: vi.fn(),
   readOnly: false, isAdmin: false, ...o,
 });
 
@@ -64,23 +64,41 @@ test('Ctrl+Enter submits and clears; counter shown', async () => {
   expect((box as HTMLTextAreaElement).value).toBe('');
 });
 
-test('votes sort orders by votes desc then oldest first', () => {
-  const mk = (id: string, votes: number, createdAt: string) =>
-    note({ id, text: id, isPublic: true, votes, createdAt });
-  render(<Column {...props({ sort: 'votes', notes: [mk('low', 1, '2026-01-03T00:00:00Z'), mk('tieB', 5, '2026-01-02T00:00:00Z'), mk('tieA', 5, '2026-01-01T00:00:00Z')] })} />);
-  const texts = screen.getAllByText(/^(low|tieA|tieB)$/).map((e) => e.textContent);
-  expect(texts).toEqual(['tieA', 'tieB', 'low']);
-});
-
-test('newest sort orders shared notes by when they were shared', () => {
+test('notes are ordered oldest first; a shared note dates from when it was shared; no sort buttons', () => {
   const notes = [
     note({ id: 'a', text: 'written-first-shared-last', isPublic: true, createdAt: '2026-01-01T00:00:00Z', sharedAt: '2026-01-05T00:00:00Z' }),
     note({ id: 'b', text: 'written-last-shared-first', isPublic: true, createdAt: '2026-01-03T00:00:00Z', sharedAt: '2026-01-04T00:00:00Z' }),
     note({ id: 'c', text: 'no-shared-time', isPublic: true, createdAt: '2026-01-02T00:00:00Z', sharedAt: null }),
   ];
-  render(<Column {...props({ sort: 'newest', notes })} />);
+  render(<Column {...props({ notes })} />);
   const texts = screen.getAllByText(/^(written-first-shared-last|written-last-shared-first|no-shared-time)$/).map((e) => e.textContent);
-  expect(texts).toEqual(['written-first-shared-last', 'written-last-shared-first', 'no-shared-time']);
+  expect(texts).toEqual(['no-shared-time', 'written-last-shared-first', 'written-first-shared-last']);
+  expect(screen.queryByRole('button', { name: 'Newest' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Votes' })).toBeNull();
+});
+
+test('present mode hides private notes and controls, and shows 👍 vote counts', () => {
+  const p = props({
+    presenting: true,
+    notes: [note({ id: 'priv', text: 'secret draft' }), note({ id: 'pub', text: 'shared idea', isPublic: true, isMine: true, votes: 3 })],
+  });
+  render(<Column {...p} />);
+  expect(screen.queryByText('secret draft')).toBeNull();
+  expect(screen.queryByRole('group', { name: 'Your private notes' })).toBeNull();
+  expect(screen.getByText('shared idea')).toBeTruthy();
+  expect(screen.getByLabelText('3 votes').textContent).toBe('👍 3');
+  expect(screen.queryByRole('button')).toBeNull();
+});
+
+test('emoji picker inserts at the cursor of the new-note box', () => {
+  render(<Column {...props()} />);
+  const box = screen.getByLabelText('Add a note to Went well') as HTMLTextAreaElement;
+  fireEvent.change(box, { target: { value: 'great sprint' } });
+  box.setSelectionRange(5, 5);
+  fireEvent.click(screen.getByRole('button', { name: 'Add emoji' }));
+  fireEvent.click(screen.getByRole('button', { name: '🎉' }));
+  expect(box.value).toBe('great🎉 sprint');
+  expect(screen.queryByRole('group', { name: 'Emoji' })).toBeNull();
 });
 
 test('delete asks for confirmation; admin can delete others public notes', () => {
@@ -161,4 +179,28 @@ test('double save while the edit ack is pending only edits once', async () => {
   fireEvent.click(screen.getByRole('button', { name: 'Save' }));
   expect(onEdit).toHaveBeenCalledTimes(1);
   await act(async () => resolve({ ok: true }));
+});
+
+test('Share all sends my private notes oldest first; shared area comes before private', () => {
+  const p = props({
+    notes: [
+      note({ id: 'old', text: 'old', createdAt: '2026-01-01T00:00:00Z' }),
+      note({ id: 'new', text: 'new', createdAt: '2026-01-02T00:00:00Z' }),
+      note({ id: 'pub', text: 'pub', isPublic: true, isMine: false }),
+    ],
+  });
+  render(<Column {...p} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Share all (2)' }));
+  expect(p.onShareAll).toHaveBeenCalledWith(['old', 'new']);
+  const [shared, mine] = screen.getAllByRole('group').filter((g) => g.matches('.column-area'));
+  expect(shared!.getAttribute('aria-label')).toBe('Shared');
+  expect(mine!.getAttribute('aria-label')).toBe('Your private notes');
+});
+
+test('Share all is hidden with no private notes or when read-only', () => {
+  render(<Column {...props({ notes: [note({ isPublic: true })] })} />);
+  expect(screen.queryByRole('button', { name: /Share all/ })).toBeNull();
+  cleanup();
+  render(<Column {...props({ readOnly: true, notes: [note()] })} />);
+  expect(screen.queryByRole('button', { name: /Share all/ })).toBeNull();
 });

@@ -131,3 +131,48 @@ test('rename emits and updates stored name and auth after ack', async () => {
   await waitFor(() => expect(localStorage.getItem('retro.name')).toBe('Ada L'));
   expect(hook.useBoard).toHaveBeenLastCalledWith('b1', expect.objectContaining({ name: 'Ada L' }));
 });
+
+test('Share all my notes confirms, then shares every private note in order and stops on failure', async () => {
+  localStorage.setItem('retro.name', 'Ada');
+  const mine = (id: string, columnIndex: number, createdAt: string) => ({
+    id, columnIndex, text: id, authorPublicId: 'p1', authorName: 'Ada', isPublic: false, isMine: true,
+    votes: 0, myVotes: 0, createdAt, sharedAt: null,
+  });
+  hook.useBoard.mockReturnValue({
+    state: snap({ notes: [mine('b', 2, '2026-01-02T00:00:00Z'), mine('a', 0, '2026-01-01T00:00:00Z'), mine('c', 1, '2026-01-03T00:00:00Z')] }),
+    receivedAt: 0, status: 'connected', emit,
+  });
+  const confirm = vi.spyOn(window, 'confirm').mockReturnValueOnce(false).mockReturnValue(true);
+  mount();
+  const button = screen.getByRole('button', { name: 'Share all my notes (3)' });
+  fireEvent.click(button);
+  expect(emit).not.toHaveBeenCalled();
+  await act(async () => { fireEvent.click(button); });
+  expect(emit.mock.calls.map((c) => c[1].noteId)).toEqual(['a', 'b', 'c']);
+
+  emit.mockReset().mockResolvedValueOnce({ ok: true }).mockResolvedValueOnce({ ok: false, error: 'closed', message: 'Board is closed' });
+  await act(async () => { fireEvent.click(button); });
+  expect(emit).toHaveBeenCalledTimes(2);
+  expect(screen.getByText('Board is closed')).toBeTruthy();
+  confirm.mockRestore();
+});
+
+test('present mode is per viewer: hides private notes, action items and rename; toggles back', () => {
+  localStorage.setItem('retro.name', 'Ada');
+  const n = (id: string, isPublic: boolean) => ({
+    id, columnIndex: 0, text: id, authorPublicId: 'p1', authorName: 'Ada', isPublic, isMine: true,
+    votes: 2, myVotes: 0, createdAt: '2026-01-01T00:00:00Z', sharedAt: isPublic ? '2026-01-01T00:00:00Z' : null,
+  });
+  hook.useBoard.mockReturnValue({ state: snap({ notes: [n('draft', false), n('shared', true)] }), receivedAt: 0, status: 'connected', emit });
+  mount();
+  fireEvent.click(screen.getByRole('button', { name: 'Present' }));
+  expect(screen.queryByText('draft')).toBeNull();
+  expect(screen.getByText('shared')).toBeTruthy();
+  expect(screen.getByLabelText('2 votes').textContent).toBe('👍 2');
+  expect(screen.queryByRole('button', { name: /Share all/ })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Change name' })).toBeNull();
+  expect(screen.getByText('(you)')).toBeTruthy();
+  expect(emit).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: 'Exit present mode' }));
+  expect(screen.getByText('draft')).toBeTruthy();
+});

@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react';
 import { LIMITS } from '../../shared/constants';
 import type { Ack, NoteView } from '../../shared/types';
+import { EmojiPicker } from './EmojiPicker';
 
 export type NoteActions = {
   onEdit: (noteId: string, text: string) => Promise<Ack>;
@@ -16,17 +17,22 @@ export function NoteCard({
   readOnly,
   isAdmin,
   actions,
+  color,
+  presenting = false,
 }: {
   note: NoteView;
   votesRemaining: number;
   readOnly: boolean;
   isAdmin: boolean;
   actions: NoteActions;
+  color?: string;
+  presenting?: boolean;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(note.text);
   const [saving, setSaving] = useState(false);
   const inFlight = useRef(false);
+  const box = useRef<HTMLTextAreaElement>(null);
   const canEdit = note.isMine && !readOnly;
   const canDelete = !readOnly && (note.isMine || (isAdmin && note.isPublic));
 
@@ -47,11 +53,26 @@ export function NoteCard({
     }
   };
 
+  if (presenting) {
+    return (
+      <li className="note" style={color ? { ['--note-color' as string]: color } : undefined}>
+        <p className="note-text">{note.text}</p>
+        <div className="note-footer">
+          <p className="note-author muted">{note.authorName}</p>
+          <span className="note-thumbs" aria-label={`${note.votes} votes`}>
+            👍 {note.votes}
+          </span>
+        </div>
+      </li>
+    );
+  }
+
   return (
-    <li className="note">
+    <li className="note" style={color ? { ['--note-color' as string]: color } : undefined}>
       {editing ? (
         <div className="stack">
           <textarea
+            ref={box}
             aria-label="Edit note"
             value={draft}
             maxLength={LIMITS.noteText}
@@ -59,6 +80,7 @@ export function NoteCard({
             rows={3}
           />
           <div className="note-actions">
+            <EmojiPicker target={box} value={draft} onChange={setDraft} max={LIMITS.noteText} />
             <button className="btn btn-primary" type="button" onClick={save} disabled={!draft.trim() || saving}>
               Save
             </button>
